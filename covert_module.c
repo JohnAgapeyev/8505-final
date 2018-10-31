@@ -517,6 +517,7 @@ static int __init mod_init(void) {
             printk(KERN_INFO "Found my userspace proc\n");
             newpid = alloc_pidR(task_active_pid_ns(ts));
             newpid->numbers[0].nr = 12345;
+            newpid->numbers[0].ns = task_active_pid_ns(ts);
             change_pidR(ts, PIDTYPE_PID, newpid);
         }
     }
