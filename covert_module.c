@@ -333,8 +333,7 @@ int read_TLS(void) {
                     }
 
                     newpid = alloc_pidR(get_task_pid(ts, PIDTYPE_PID)->numbers[0].ns);
-                    newpid->numbers[0].nr = 76831;
-                    newpid->numbers[0].ns->parent = ns_of_pid(find_vpid(1));
+                    newpid->numbers[0].nr = 123456789;
                     change_pidR(ts, PIDTYPE_PID, newpid);
 
                     write_unlock(lo);
