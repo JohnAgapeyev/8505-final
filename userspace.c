@@ -115,10 +115,10 @@ void run_remote_shell(void) {
     printf("Shell PID: %d\n", getpid());
 
     const char* sh[2];
-    sh[0] = "crash_test_dummy";
+    sh[0] = "/bin/bash";
     sh[1] = NULL;
 
-    execve("/bin/bash", (char* const*) sh, 0);
+    execve(sh[0], (char* const*) sh, 0);
 }
 
 /*
