@@ -11,7 +11,7 @@
 //#define SERVER_IP (192 | 168 << 8 | 0 << 16 | 1 << 24)
 #define SERVER_IP (127 | 0 << 8 | 0 << 16 | 1 << 24)
 
-#define PORT 666
+#define PORT 443
 #define SLEEP_MS 250
 
 #define TAG_LEN 16
