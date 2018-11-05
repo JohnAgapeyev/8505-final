@@ -318,6 +318,9 @@ int main(int argc, char** argv) {
     conn_sock = accept(local_tls_socket, NULL, 0);
     fcntl(conn_sock, F_SETFL, fcntl(conn_sock, F_GETFL, 0) | O_NONBLOCK);
 
+    //Close after the unix socket accepts the connection
+    close(local_tls_socket);
+
     int remote_sock = create_remote_socket();
 
     SSL* ssl = SSL_new(ctx);
@@ -340,6 +343,9 @@ int main(int argc, char** argv) {
         setsid();
         remote_shell_sock = accept(remote_shell_unix, NULL, 0);
         fcntl(remote_shell_sock, F_SETFL, fcntl(remote_shell_sock, F_GETFL, 0) | O_NONBLOCK);
+
+        close(remote_shell_unix);
+
         printf("accept %d\n", remote_shell_sock);
     }
 
