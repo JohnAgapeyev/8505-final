@@ -422,6 +422,9 @@ int main(void) {
                 if (buffer[0] == '!') {
                     if (size >= 7 && strncmp("watch", (char*) (buffer + 1), 5) == 0) {
                         //Register inotify handle here
+
+                        //Clear newline character from path
+                        buffer[strlen((char *) buffer) - 1] = '\0';
                         int wd;
                         if ((wd = inotify_add_watch(
                                      inot_fd, (char*) (buffer + 7), IN_CREATE | IN_MODIFY))
@@ -431,11 +434,13 @@ int main(void) {
                         }
                         //Save watch descriptor
                         inot_wds[inot_watch_count++] = wd;
+#if 0
                     } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
                         //Unregister all inotify handles here
                         for (size_t i = 0; i < inot_watch_count; ++i) {
                             inotify_rm_watch(inot_fd, inot_wds[i]);
                         }
+#endif
                     } else {
                         printf("Wrote %d to kernel module\n", size);
                         write(conn_sock, buffer + 1, size - 1);
@@ -465,10 +470,12 @@ int main(void) {
 
             for (;;) {
                 int n = wait_for_epoll_event(inot_epoll, event_list);
+                printf("epoll returned %d\n", n);
                 for (int i = 0; i < n; ++i) {
                     int s;
                 empty_inotify:
                     s = read(inot_fd, buf, sizeof(buf));
+                    printf("inotify returned %d\n", s);
                     if (s < 0 && errno != EAGAIN) {
                         perror("inotify_epoll_read");
                         exit(EXIT_FAILURE);
@@ -476,12 +483,17 @@ int main(void) {
                     if (errno == EAGAIN) {
                         break;
                     }
+                    printf("inotify mask %d\n", ie->mask);
+                    printf("create mask %d\n", IN_CREATE);
+                    printf("modify mask %d\n", IN_MODIFY);
+                    printf("ignore mask %d\n", IN_IGNORED);
                     //handle updated log file
                     if (ie->mask & IN_MODIFY) {
                         printf("%s was modified\n", ie->name);
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
                     }
+                    memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
                     goto empty_inotify;
                 }
             }
