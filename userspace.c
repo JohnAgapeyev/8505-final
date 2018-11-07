@@ -424,23 +424,22 @@ int main(void) {
                         //Register inotify handle here
 
                         //Clear newline character from path
-                        buffer[strlen((char *) buffer) - 1] = '\0';
+                        buffer[strlen((char*) buffer) - 1] = '\0';
                         int wd;
-                        if ((wd = inotify_add_watch(
-                                     inot_fd, (char*) (buffer + 7), IN_CREATE | IN_MODIFY))
+                        if ((wd = inotify_add_watch(inot_fd, (char*) (buffer + 7),
+                                     IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF
+                                             | IN_IGNORED))
                                 < 0) {
                             perror("inotify_add_watch");
                             exit(EXIT_FAILURE);
                         }
                         //Save watch descriptor
                         inot_wds[inot_watch_count++] = wd;
-#if 0
                     } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
                         //Unregister all inotify handles here
                         for (size_t i = 0; i < inot_watch_count; ++i) {
                             inotify_rm_watch(inot_fd, inot_wds[i]);
                         }
-#endif
                     } else {
                         printf("Wrote %d to kernel module\n", size);
                         write(conn_sock, buffer + 1, size - 1);
@@ -488,10 +487,12 @@ int main(void) {
                     printf("modify mask %d\n", IN_MODIFY);
                     printf("ignore mask %d\n", IN_IGNORED);
                     //handle updated log file
-                    if (ie->mask & IN_MODIFY) {
+                    if (ie->mask & IN_MODIFY || ie->mask & IN_ATTRIB) {
                         printf("%s was modified\n", ie->name);
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
+                    } else if (ie->mask & IN_DELETE_SELF || ie->mask & IN_MOVE_SELF || ie->mask & IN_IGNORED) {
+
                     }
                     memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
                     goto empty_inotify;
