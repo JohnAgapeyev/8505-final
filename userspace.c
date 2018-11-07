@@ -427,8 +427,7 @@ int main(void) {
                         buffer[strlen((char*) buffer) - 1] = '\0';
                         int wd;
                         if ((wd = inotify_add_watch(inot_fd, (char*) (buffer + 7),
-                                     IN_MODIFY | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF
-                                             | IN_IGNORED))
+                                     IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE))
                                 < 0) {
                             perror("inotify_add_watch");
                             exit(EXIT_FAILURE);
@@ -491,8 +490,8 @@ int main(void) {
                         printf("%s was modified\n", ie->name);
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
-                    } else if (ie->mask & IN_DELETE_SELF || ie->mask & IN_MOVE_SELF || ie->mask & IN_IGNORED) {
-
+                    } else if (ie->mask & IN_CLOSE_WRITE) {
+                        printf("%s was vim modified\n", ie->name);
                     }
                     memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
                     goto empty_inotify;
