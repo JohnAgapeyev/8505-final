@@ -179,7 +179,7 @@ int create_remote_socket(void) {
 
 /*
  * function:
- *    createEpollFd
+ *    create_epoll_fd
  *
  * return:
  *    int
@@ -190,7 +190,7 @@ int create_remote_socket(void) {
  * notes:
  * Wrapper around epoll_create1()
  */
-int createEpollFd(void) {
+int create_epoll_fd(void) {
     int efd;
     if ((efd = epoll_create1(0)) == -1) {
         perror("epoll_create1");
@@ -223,7 +223,7 @@ void add_epoll_socket(const int epollfd, const int sock, struct epoll_event* ev)
 
 /*
  * function:
- *    waitForEpollEvent
+ *    wait_for_epoll_event
  *
  * return:
  *    int
@@ -235,7 +235,7 @@ void add_epoll_socket(const int epollfd, const int sock, struct epoll_event* ev)
  * notes:
  * Wrapper around epoll_wait
  */
-int waitForEpollEvent(const int epollfd, struct epoll_event* events) {
+int wait_for_epoll_event(const int epollfd, struct epoll_event* events) {
     int nevents;
     if ((nevents = epoll_wait(epollfd, events, 100, -1)) == -1) {
         if (errno == EINTR) {
@@ -333,7 +333,7 @@ int main(void) {
         }
         setsid();
 
-        int efd = createEpollFd();
+        int efd = create_epoll_fd();
         struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
 
         struct epoll_event ev;
@@ -350,8 +350,8 @@ int main(void) {
         hide_proc();
 
         for (;;) {
-            int n = waitForEpollEvent(efd, eventList);
-            //n can't be -1 because the handling for that is done in waitForEpollEvent
+            int n = wait_for_epoll_event(efd, eventList);
+            //n can't be -1 because the handling for that is done in wait_for_epoll_event
             assert(n != -1);
             for (int i = 0; i < n; ++i) {
                 if (eventList[i].events & EPOLLERR || eventList[i].events & EPOLLHUP) {
