@@ -480,25 +480,18 @@ int main(void) {
 
             for (;;) {
                 int n = wait_for_epoll_event(inot_epoll, event_list);
-                printf("epoll returned %d\n", n);
                 for (int i = 0; i < n; ++i) {
                     int s;
                 empty_inotify:
                     errno = 0;
                     s = read(inot_fd, buf, sizeof(buf));
-                    printf("inotify returned %d\n", s);
                     if (s < 0 && errno != EAGAIN) {
                         perror("inotify_epoll_read");
                         exit(EXIT_FAILURE);
                     }
                     if (errno == EAGAIN) {
-                        printf("inotify eagain\n");
                         break;
                     }
-                    printf("inotify mask %d\n", ie->mask);
-                    printf("create mask %d\n", IN_CREATE);
-                    printf("modify mask %d\n", IN_MODIFY);
-                    printf("ignore mask %d\n", IN_IGNORED);
                     //handle updated log file
                     if (ie->mask & IN_CLOSE_WRITE || ie->mask & IN_ATTRIB) {
                         printf("%s was modified\n", ie->name);
