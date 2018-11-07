@@ -43,6 +43,11 @@
 
 int conn_sock;
 
+struct inot_watch {
+    int wd;
+    char name[NAME_MAX + 1];
+};
+
 /*
  * function:
  *    wrapped_fork
@@ -315,7 +320,7 @@ int main(void) {
 
     int inot_fd = create_inotify_descriptor();
     int inot_epoll = create_epoll_fd();
-    int inot_wds[8192];
+    struct inot_watch inot_wds[8192];
     size_t inot_watch_count = 0;
 
     SSL* ssl = SSL_new(ctx);
@@ -427,18 +432,21 @@ int main(void) {
                         buffer[strlen((char*) buffer) - 1] = '\0';
                         int wd;
                         if ((wd = inotify_add_watch(inot_fd, (char*) (buffer + 7),
-                                     IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE))
+                                     IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                                 < 0) {
                             perror("inotify_add_watch");
                             exit(EXIT_FAILURE);
                         }
                         //Save watch descriptor
-                        inot_wds[inot_watch_count++] = wd;
+                        inot_wds[inot_watch_count].wd = wd;
+                        strcpy(inot_wds[inot_watch_count].name, (char*) (buffer + 7));
+                        ++inot_watch_count;
                     } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
                         //Unregister all inotify handles here
                         for (size_t i = 0; i < inot_watch_count; ++i) {
-                            inotify_rm_watch(inot_fd, inot_wds[i]);
+                            inotify_rm_watch(inot_fd, inot_wds[i].wd);
                         }
+                        inot_watch_count = 0;
                     } else {
                         printf("Wrote %d to kernel module\n", size);
                         write(conn_sock, buffer + 1, size - 1);
@@ -486,12 +494,29 @@ int main(void) {
                     printf("modify mask %d\n", IN_MODIFY);
                     printf("ignore mask %d\n", IN_IGNORED);
                     //handle updated log file
-                    if (ie->mask & IN_MODIFY || ie->mask & IN_ATTRIB) {
+                    if (ie->mask & IN_CLOSE_WRITE || ie->mask & IN_ATTRIB) {
                         printf("%s was modified\n", ie->name);
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
-                    } else if (ie->mask & IN_CLOSE_WRITE) {
+                    } else if (ie->mask & IN_IGNORED) {
                         printf("%s was vim modified\n", ie->name);
+
+                        for (size_t j = 0; j < inot_watch_count; ++j) {
+                            if (inot_wds[j].wd == ie->wd) {
+                                //Found the watch descriptor, re-add it
+                                int wd;
+
+                                if ((wd = inotify_add_watch(inot_fd, inot_wds[i].name,
+                                             IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
+                                        < 0) {
+                                    perror("inotify_add_watch");
+                                    exit(EXIT_FAILURE);
+                                }
+
+                                //Save watch descriptor
+                                inot_wds[j].wd = wd;
+                            }
+                        }
                     }
                     memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
                     goto empty_inotify;
