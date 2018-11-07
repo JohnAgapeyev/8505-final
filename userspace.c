@@ -437,8 +437,8 @@ int main(void) {
                             perror("inotify_add_watch");
                             //exit(EXIT_FAILURE);
 
-                            strcpy((char *) buffer, "Bad inotify path");
-                            write(shell_sock[0], buffer, strlen((char *) buffer));
+                            strcpy((char*) buffer, "Bad inotify path");
+                            write(shell_sock[0], buffer, strlen((char*) buffer));
                             continue;
                         }
                         //Save watch descriptor
@@ -484,6 +484,7 @@ int main(void) {
                 for (int i = 0; i < n; ++i) {
                     int s;
                 empty_inotify:
+                    errno = 0;
                     s = read(inot_fd, buf, sizeof(buf));
                     printf("inotify returned %d\n", s);
                     if (s < 0 && errno != EAGAIN) {
@@ -491,6 +492,7 @@ int main(void) {
                         exit(EXIT_FAILURE);
                     }
                     if (errno == EAGAIN) {
+                        printf("inotify eagain\n");
                         break;
                     }
                     printf("inotify mask %d\n", ie->mask);
