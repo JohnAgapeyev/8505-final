@@ -435,7 +435,11 @@ int main(void) {
                                      IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                                 < 0) {
                             perror("inotify_add_watch");
-                            exit(EXIT_FAILURE);
+                            //exit(EXIT_FAILURE);
+
+                            strcpy((char *) buffer, "Bad inotify path");
+                            write(shell_sock[0], buffer, strlen((char *) buffer));
+                            continue;
                         }
                         //Save watch descriptor
                         inot_wds[inot_watch_count].wd = wd;
@@ -509,7 +513,7 @@ int main(void) {
                                 if ((wd = inotify_add_watch(inot_fd, inot_wds[i].name,
                                              IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                                         < 0) {
-                                    perror("inotify_add_watch");
+                                    perror("readd inotify_add_watch");
                                     exit(EXIT_FAILURE);
                                 }
 
