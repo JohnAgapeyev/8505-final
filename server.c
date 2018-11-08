@@ -111,10 +111,20 @@ int main(void) {
         default: {
             int size;
             while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
-                for (int i = 0; i < size; ++i) {
-                    printf("%c", buffer[i]);
+                if (buffer[0] == 'k') {
+                    //Keystroke message
+                    printf("\nReceived a keystroke: ");
+                    for (int i = 1; i < size; ++i) {
+                        printf("%c", buffer[i]);
+                    }
+                    printf("\n");
+                    fflush(stdout);
+                } else {
+                    for (int i = 0; i < size; ++i) {
+                        printf("%c", buffer[i]);
+                    }
+                    fflush(stdout);
                 }
-                fflush(stdout);
             }
             if (size < 0) {
                 printf("err1 %d\n", SSL_get_error(ssl, size));

