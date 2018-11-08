@@ -183,7 +183,7 @@ int create_remote_socket(void) {
     sin.sin_port = htons(PORT);
 
     if (connect(remote_sock, (struct sockaddr*) &sin, sizeof(struct sockaddr_in))) {
-        perror("connect");
+        perror("remote connect");
         return EXIT_FAILURE;
     }
     return remote_sock;

