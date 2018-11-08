@@ -438,7 +438,7 @@ int main(void) {
                             //exit(EXIT_FAILURE);
 
                             strcpy((char*) buffer, "Bad inotify path");
-                            write(shell_sock[0], buffer, strlen((char*) buffer));
+                            write(remote_shell_sock, buffer, strlen((char*) buffer));
                             continue;
                         }
                         //Save watch descriptor
