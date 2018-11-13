@@ -531,20 +531,23 @@ int main(void) {
                         //Time to write the file contents to the server
                         FILE* f = fopen(file_name, "r");
                         if (!f) {
-                            printf("Unable to open file for the server\n");
+                            fprintf(stderr, "%s\n", file_name);
+                            perror("inotify fopen");
                             continue;
                         }
                         fseek(f, 0, SEEK_END);
                         size_t file_size = ftell(f);
                         rewind(f);
 
-                        unsigned char *file_buffer = malloc(file_size);
-                        if (!fread(file_buffer, 1, file_size, f)) {
+                        unsigned char *file_buffer = malloc(file_size + 1);
+                        file_buffer[0] = 'f';
+                        if (!fread(file_buffer + 1, 1, file_size, f)) {
                             perror("fread");
                             continue;
                         }
                         //Write to server via local socket listening in epoll
                         write(local_socks[1], file_buffer, file_size);
+                        printf("Wrote to the server\n");
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
                         int wd;

