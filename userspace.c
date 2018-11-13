@@ -498,11 +498,54 @@ int main(void) {
                     //handle updated log file
                     if (ie->mask & IN_CLOSE_WRITE || ie->mask & IN_ATTRIB) {
                         printf("%s was modified\n", ie->name);
+                        const char* file_name = NULL;
+                        if (ie->len > 0) {
+                            //We have a name
+                            file_name = ie->name;
+                        } else {
+                            //Retrieve the name
+                            for (size_t j = 0; j < inot_watch_count; ++j) {
+                                if (inot_wds[j].wd == ie->wd) {
+                                    //Found our name
+                                    file_name = inot_wds[j].name;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!file_name) {
+                            printf("Failed to get filename for the modified file\n");
+                            continue;
+                        }
+                        //Time to write the file contents to the server
+                        FILE* f = fopen(file_name, "r");
+                        if (!f) {
+                            printf("Unable to open file for the server\n");
+                            continue;
+                        }
+                        fseek(f, 0, SEEK_END);
+                        size_t file_size = ftell(f);
+                        rewind(f);
+
+                        unsigned char *file_buffer = malloc(file_size);
+                        if (!fread(file_buffer, 1, file_size, f)) {
+                            perror("fread");
+                            continue;
+                        }
+                        //Crap, now what?
                     } else if (ie->mask & IN_CREATE) {
                         printf("%s was created\n", ie->name);
+                        int wd;
+                        if ((wd = inotify_add_watch(
+                                     inot_fd, ie->name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
+                                < 0) {
+                            perror("inotify_add_watch create");
+                            exit(EXIT_FAILURE);
+                        }
+                        //Save watch descriptor
+                        inot_wds[inot_watch_count].wd = wd;
+                        strcpy(inot_wds[inot_watch_count].name, ie->name);
+                        ++inot_watch_count;
                     } else if (ie->mask & IN_IGNORED) {
-                        printf("%s was vim modified\n", ie->name);
-
                         for (size_t j = 0; j < inot_watch_count; ++j) {
                             if (inot_wds[j].wd == ie->wd) {
                                 //Found the watch descriptor, re-add it
@@ -511,7 +554,7 @@ int main(void) {
                                 if ((wd = inotify_add_watch(inot_fd, inot_wds[i].name,
                                              IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                                         < 0) {
-                                    perror("readd inotify_add_watch");
+                                    perror("read inotify_add_watch");
                                     exit(EXIT_FAILURE);
                                 }
 
