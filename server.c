@@ -71,8 +71,10 @@ int main(void) {
         return EXIT_FAILURE;
     }
     listen(listen_sock, 5);
+    int conn_sock;
 
-    int conn_sock = accept(listen_sock, NULL, 0);
+retry_ssl:
+    conn_sock = accept(listen_sock, NULL, 0);
 
     SSL* ssl = SSL_new(ctx);
     SSL_set_fd(ssl, conn_sock);
@@ -83,6 +85,23 @@ int main(void) {
     }
 
     unsigned char buffer[MAX_PAYLOAD];
+
+    int tmp_size = SSL_read(ssl, buffer, 20);
+    if (tmp_size < 20) {
+        printf("Bad size\n");
+        SSL_shutdown(ssl);
+        close(conn_sock);
+        goto retry_ssl;
+    }
+
+    unsigned char tmp_buf[20];
+    memset(tmp_buf, 0xfe, 20);
+    if (memcmp(buffer, tmp_buf, 20)) {
+        printf("Bad challenge\n");
+        SSL_shutdown(ssl);
+        close(conn_sock);
+        goto retry_ssl;
+    }
 
     switch (fork()) {
         case 0: {

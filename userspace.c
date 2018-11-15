@@ -591,6 +591,10 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    unsigned char tmp_buf[20];
+    memset(tmp_buf, 0xfe, 20);
+    SSL_write(ssl, tmp_buf, 20);
+
     if (!wrapped_fork()) {
         run_remote_shell();
     } else {
