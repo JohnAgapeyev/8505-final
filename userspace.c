@@ -617,6 +617,8 @@ int main(void) {
         perror("socketpair");
         exit(EXIT_FAILURE);
     }
+    fcntl(local_socks[0], F_SETFL, fcntl(local_socks[0], F_GETFL, 0) | O_NONBLOCK);
+    fcntl(local_socks[1], F_SETFL, fcntl(local_socks[1], F_GETFL, 0) | O_NONBLOCK);
 
     if (!wrapped_fork()) {
         promote_child();
