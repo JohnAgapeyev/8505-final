@@ -21,12 +21,57 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "crypto.h"
 #include "shared.h"
 
-static unsigned char key[KEY_LEN];
+const char* bad_message_prefix = "\
+HTTP/1.1 404 Not Found \r\n\
+Server: nginx/1.14.0\r\n\
+Date: ";
+const char* bad_message_suffix = "\
+\r\nContent-Type: text/html; charset=iso-8859-1\r\n\
+Content-Length: 149\r\n\
+Connection: close\r\n\
+\r\n\
+<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\n\
+<html><head>\n\
+<title>404 Not Found</title>\n\
+</head><body>\n\
+<h1>Not Found</h1>\n\
+</body></html>\n";
+
+static const char* DAY_NAMES[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+static const char* MONTH_NAMES[]
+        = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+//https://stackoverflow.com/questions/2726975/how-can-i-generate-an-rfc1123-date-string-from-c-code-win32
+char* Rfc1123_DateTimeNow(void) {
+    const int RFC1123_TIME_LEN = 29;
+    time_t t;
+    struct tm* tm;
+    char* buf = malloc(RFC1123_TIME_LEN + 1);
+
+    time(&t);
+    tm = gmtime(&t);
+
+    strftime(buf, RFC1123_TIME_LEN + 1, "---, %d --- %Y %H:%M:%S GMT", tm);
+    memcpy(buf, DAY_NAMES[tm->tm_wday], 3);
+    memcpy(buf + 8, MONTH_NAMES[tm->tm_mon], 3);
+
+    return buf;
+}
+
+const char *get_404_response(void) {
+    char *response = malloc(4096);
+    char *date = Rfc1123_DateTimeNow();
+    strcpy(response, bad_message_prefix);
+    strcat(response, date);
+    strcat(response, bad_message_suffix);
+    return response;
+}
 
 /*
  * function:
@@ -51,8 +96,6 @@ int main(void) {
         perror("setgid");
         exit(EXIT_FAILURE);
     }
-
-    memset(key, 0xab, KEY_LEN);
 
     init_openssl();
     SSL_CTX* ctx = create_context();
