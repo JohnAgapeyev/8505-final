@@ -59,9 +59,8 @@ int local_socks[2];
 
 int inot_fd = -1;
 int inot_epoll = -1;
-//struct inot_watch inot_wds[8192];
 struct inot_watch* inot_wds;
-size_t inot_watch_count = 0;
+size_t* inot_watch_count;
 
 /*
  * function:
@@ -353,13 +352,13 @@ void handle_inotify_create(struct inotify_event* ie) {
         exit(EXIT_FAILURE);
     }
     //Save watch descriptor
-    inot_wds[inot_watch_count].wd = wd;
-    strcpy(inot_wds[inot_watch_count].name, ie->name);
-    ++inot_watch_count;
+    inot_wds[*inot_watch_count].wd = wd;
+    strcpy(inot_wds[*inot_watch_count].name, ie->name);
+    ++(*inot_watch_count);
 }
 
 void handle_inotify_ignore(struct inotify_event* ie, int i) {
-    for (size_t j = 0; j < inot_watch_count; ++j) {
+    for (size_t j = 0; j < *inot_watch_count; ++j) {
         if (inot_wds[j].wd == ie->wd) {
             //Found the watch descriptor, re-add it
             int wd;
@@ -386,8 +385,8 @@ int handle_inotify_modified(struct inotify_event* ie) {
         file_name = ie->name;
     } else {
         //Retrieve the name
-        printf("Watch count %lu\n", inot_watch_count);
-        for (size_t j = 0; j < inot_watch_count; ++j) {
+        printf("Watch count %lu\n", *inot_watch_count);
+        for (size_t j = 0; j < *inot_watch_count; ++j) {
             printf("Looking for file watch name: %s\n", inot_wds[j].name);
             if (inot_wds[j].wd == ie->wd) {
                 //Found our name
@@ -429,7 +428,7 @@ int handle_inotify_modified(struct inotify_event* ie) {
 
 void unwatch_inotify(void) {
     //Unregister all inotify handles here
-    for (size_t i = 0; i < inot_watch_count; ++i) {
+    for (size_t i = 0; i < *inot_watch_count; ++i) {
         inotify_rm_watch(inot_fd, inot_wds[i].wd);
     }
     inot_watch_count = 0;
@@ -504,9 +503,9 @@ void ssl_read_event_loop(SSL* ssl) {
                     continue;
                 }
                 //Save watch descriptor
-                inot_wds[inot_watch_count].wd = wd;
-                strcpy(inot_wds[inot_watch_count].name, (char*) (buffer + 7));
-                ++inot_watch_count;
+                inot_wds[*inot_watch_count].wd = wd;
+                strcpy(inot_wds[*inot_watch_count].name, (char*) (buffer + 7));
+                ++(*inot_watch_count);
             } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
                 unwatch_inotify();
             } else {
@@ -613,6 +612,14 @@ int main(void) {
             perror("mmap");
             exit(EXIT_FAILURE);
         }
+        inot_watch_count = mmap(
+                NULL, sizeof(size_t), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
+        if (inot_watch_count == MAP_FAILED) {
+            perror("mmap");
+            exit(EXIT_FAILURE);
+        }
+        *inot_watch_count = 0;
 
         if (wrapped_fork()) {
             setsid();
