@@ -116,8 +116,8 @@ int main(void) {
             }
             int size;
             while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
-                printf("Got %d bytes\n", size);
-                fflush(stdout);
+                //printf("Got %d bytes\n", size);
+                //fflush(stdout);
                 if (buffer[0] == 'k') {
                     buffer[size] = '\n';
                     //Keystroke message

@@ -406,7 +406,7 @@ int handle_inotify_modified(struct inotify_event* ie) {
         return -1;
     }
     //Write to server via local socket listening in epoll
-    write(local_socks[1], file_buffer, file_size);
+    write(local_socks[1], file_buffer, file_size + 1);
     printf("Wrote to the server\n");
     return 0;
 }
