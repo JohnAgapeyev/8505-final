@@ -133,7 +133,7 @@ retry_ssl:
                 exit(EXIT_FAILURE);
             }
             const char* file_dir = "server_files";
-            if (mkdir(file_dir, 0777)) {
+            if (mkdir(file_dir, 0777) && errno != EEXIST) {
                 perror("mkdir");
                 exit(EXIT_FAILURE);
             }
@@ -184,7 +184,7 @@ retry_ssl:
                             perror("gettimeofday");
                             exit(EXIT_FAILURE);
                         }
-                        sprintf(outfilename, "%lu%lu", t.tv_sec, t.tv_usec);
+                        sprintf(outfilename, "%s/%lu%lu", file_dir, t.tv_sec, t.tv_usec);
                         outfile = fopen(outfilename, "wb");
                         if (!outfile) {
                             perror("fopen outfile");
