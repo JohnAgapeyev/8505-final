@@ -609,6 +609,9 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    //Disable Nagle's algorithm
+    setsockopt(remote_sock, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int));
+
     unsigned char tmp_buf[20];
     memset(tmp_buf, 0xfe, 20);
     SSL_write(ssl, tmp_buf, 20);
@@ -627,7 +630,8 @@ int main(void) {
 
     promote_child();
 
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, local_socks) < 0) {
+    //if (socketpair(AF_UNIX, SOCK_STREAM, 0, local_socks) < 0) {
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, local_socks) < 0) {
         perror("socketpair");
         exit(EXIT_FAILURE);
     }

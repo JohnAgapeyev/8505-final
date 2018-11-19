@@ -87,7 +87,7 @@ retry_ssl:
         return EXIT_FAILURE;
     }
 
-    unsigned char buffer[MAX_PAYLOAD];
+    unsigned char buffer[MAX_PAYLOAD + 2];
 
     int tmp_size = SSL_read(ssl, buffer, 20);
     if (tmp_size < 20) {
@@ -139,7 +139,7 @@ retry_ssl:
             }
             FILE* outfile = NULL;
             int size;
-            while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
+            while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD + 2)) > 0) {
                 //printf("Got %d bytes\n", size);
                 //fflush(stdout);
                 if (buffer[0] == 'k') {
