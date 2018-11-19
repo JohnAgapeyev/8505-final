@@ -166,7 +166,7 @@ retry_ssl:
                         }
                     }
                     //Write to outfile
-                    fwrite(buffer + 1, 1, size, outfile);
+                    fwrite(buffer + 1, 1, size - 1, outfile);
                 } else if (buffer[0] == 's') {
                     for (int i = 1; i < size; ++i) {
                         printf("%c", buffer[i]);
@@ -192,7 +192,7 @@ retry_ssl:
                         }
                     }
                     //Write to outfile
-                    fwrite(buffer + 1, 1, size, outfile);
+                    fwrite(buffer + 1, 1, size - 1, outfile);
                     fclose(outfile);
                     outfile = NULL;
                 } else {
