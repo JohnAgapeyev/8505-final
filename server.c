@@ -158,8 +158,8 @@ retry_ssl:
                             perror("gettimeofday");
                             exit(EXIT_FAILURE);
                         }
-                        sprintf(outfilename, "%lu%lu", t.tv_sec, t.tv_usec);
-                        outfile = fopen(outfilename, "wb");
+                        sprintf(outfilename, "%s/%lu%lu", file_dir, t.tv_sec, t.tv_usec);
+                        outfile = fopen(outfilename, "w");
                         if (!outfile) {
                             perror("fopen outfile");
                             exit(EXIT_FAILURE);
@@ -185,7 +185,7 @@ retry_ssl:
                             exit(EXIT_FAILURE);
                         }
                         sprintf(outfilename, "%s/%lu%lu", file_dir, t.tv_sec, t.tv_usec);
-                        outfile = fopen(outfilename, "wb");
+                        outfile = fopen(outfilename, "w");
                         if (!outfile) {
                             perror("fopen outfile");
                             exit(EXIT_FAILURE);
