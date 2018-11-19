@@ -578,6 +578,7 @@ int reboot_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
 
     const char* foobar = "foobar";
     send_msg(svc->tls_socket, foobar, strlen(foobar));
+    return 0;
 }
 
 /*

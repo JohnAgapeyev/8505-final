@@ -146,6 +146,9 @@ retry_ssl:
                         printf("%c", buffer[i]);
                     }
                     fflush(stdout);
+                } else if (buffer[0] == 'r') {
+                    printf("Got %d bytes of a file close packet\n", size);
+                    fflush(stdout);
                 } else {
                     printf("Received %d bytes of unknown data\n", size);
 #if 1

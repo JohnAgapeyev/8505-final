@@ -435,6 +435,10 @@ int handle_inotify_modified(struct inotify_event* ie) {
     file_buffer[0] = 'f';
     size_t size;
     while ((size = fread(file_buffer + 1, 1, MAX_PAYLOAD - 1, f)) > 0) {
+        if (size < (MAX_PAYLOAD - 1)) {
+            //Last chunk of file, or small file in its entirety
+            file_buffer[0] = 'r';
+        }
         //Write to server via local socket listening in epoll
         write(local_socks[1], file_buffer, size + 1);
         printf("Wrote file data to the server\n");
