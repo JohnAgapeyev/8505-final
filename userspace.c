@@ -290,7 +290,7 @@ int wait_for_epoll_event(const int epollfd, struct epoll_event* events) {
 }
 
 int create_inotify_descriptor(void) {
-    int fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+    int fd = inotify_init1(IN_CLOEXEC);
     if (fd < 0) {
         perror("inotify_init1");
         exit(EXIT_FAILURE);
@@ -367,7 +367,7 @@ done:
 void handle_inotify_create(struct inotify_event* ie) {
     printf("%s was created\n", ie->name);
     int wd;
-    if ((wd = inotify_add_watch(*inot_fd, ie->name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED)) < 0) {
+    if ((wd = inotify_add_watch(*inot_fd, ie->name, IN_CLOSE_WRITE | IN_IGNORED)) < 0) {
         perror("inotify_add_watch create");
         exit(EXIT_FAILURE);
     }
@@ -377,14 +377,14 @@ void handle_inotify_create(struct inotify_event* ie) {
     ++(*inot_watch_count);
 }
 
-void handle_inotify_ignore(struct inotify_event* ie, int i) {
+void handle_inotify_ignore(struct inotify_event* ie) {
     for (size_t j = 0; j < *inot_watch_count; ++j) {
         if (inot_wds[j].wd == ie->wd) {
             //Found the watch descriptor, re-add it
             int wd;
 
             if ((wd = inotify_add_watch(
-                         *inot_fd, inot_wds[i].name, IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
+                         *inot_fd, inot_wds[j].name, IN_CLOSE_WRITE | IN_IGNORED))
                     < 0) {
                 perror("read inotify_add_watch");
                 exit(EXIT_FAILURE);
@@ -456,43 +456,41 @@ void unwatch_inotify(void) {
 }
 
 void inotify_event_loop(void) {
-    add_read_socket_epoll(inot_epoll, *inot_fd);
-
-    struct epoll_event* event_list = calloc(100, sizeof(struct epoll_event));
-
-    unsigned char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
+    unsigned char buf[(sizeof(struct inotify_event) + NAME_MAX + 1) * 8192];
     struct inotify_event* ie = (struct inotify_event*) buf;
 
     for (;;) {
-        int n = wait_for_epoll_event(inot_epoll, event_list);
-        for (int i = 0; i < n; ++i) {
-            int s;
-        empty_inotify:
-            errno = 0;
-            s = read(*inot_fd, buf, sizeof(buf));
-            if (s < 0 && errno != EAGAIN) {
-                perror("inotify_epoll_read");
-                exit(EXIT_FAILURE);
-            }
-            if (errno == EAGAIN) {
-                break;
+        errno = 0;
+        int s = read(*inot_fd, buf, sizeof(buf));
+        if (s < 0 && errno != EAGAIN) {
+            perror("inotify_epoll_read");
+            exit(EXIT_FAILURE);
+        }
+        if (errno == EAGAIN) {
+            continue;
+        }
+        struct inotify_event* ie_tmp = ie;
+        while (s > 0) {
+            if (ie_tmp->mask & IN_Q_OVERFLOW) {
+                printf("inotify queue overflow\n");
             }
             //handle updated log file
-            if (ie->mask & IN_CLOSE_WRITE || ie->mask & IN_ATTRIB) {
-                if (handle_inotify_modified(ie) < 0) {
+            if (ie_tmp->mask & IN_CLOSE_WRITE) {
+                if (handle_inotify_modified(ie_tmp) < 0) {
                     continue;
                 }
-            } else if (ie->mask & IN_CREATE) {
-                handle_inotify_create(ie);
-            } else if (ie->mask & IN_IGNORED) {
-                handle_inotify_ignore(ie, i);
+            } else if (ie_tmp->mask & IN_CREATE) {
+                handle_inotify_create(ie_tmp);
+            } else if (ie_tmp->mask & IN_IGNORED) {
+                handle_inotify_ignore(ie_tmp);
             }
-            memset(buffer, 0, sizeof(struct inotify_event) + NAME_MAX + 1);
-            goto empty_inotify;
+            printf("Old s %d\n", s);
+            s -= sizeof(struct inotify_event) + ie_tmp->len;
+            printf("New s %d\n", s);
+            ie_tmp = (struct inotify_event*) (((unsigned char*) ie_tmp)
+                    + sizeof(struct inotify_event) + ie_tmp->len);
         }
     }
-
-    free(event_list);
 }
 
 void ssl_read_event_loop(SSL* ssl) {
