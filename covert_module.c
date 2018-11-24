@@ -680,11 +680,12 @@ static int __init mod_init(void) {
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
-    char user_string[] = "/aing-matrix";
-    char user_file[40];
+    char *user_string = kmalloc(100, GFP_KERNEL);
+    strcpy(user_string, "/aing-matrix");
+    char *user_file = kmalloc(100, GFP_KERNEL);
     memset(user_file, 0, 40);
 
-    for (i = strlen(user_string) - 1; i >= 0; ++i) {
+    for (i = strlen(user_string) - 1; i >= 0; --i) {
         if (user_string[i] == '/') {
             break;
         }
@@ -693,6 +694,9 @@ static int __init mod_init(void) {
     }
 
     printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_string, user_file);
+
+    kfree(user_string);
+    kfree(user_file);
 
 #if 0
     if (kern_path("/aing-matrix", 0, &my_file_path)) {
