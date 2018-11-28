@@ -172,6 +172,11 @@ retry_ssl:
                         printf("%c", buffer[i]);
                     }
                     fflush(stdout);
+                } else if (buffer[0] == 'm') {
+                    for (int i = 1; i < size; ++i) {
+                        printf("%c", buffer[i]);
+                    }
+                    fflush(stdout);
                 } else if (buffer[0] == 'r') {
                     printf("Got %d bytes of a file close packet\n", size);
                     fflush(stdout);
