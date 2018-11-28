@@ -102,7 +102,7 @@ void* wrapped_mmap(size_t size) {
 void hide_proc(void) {
     unsigned char buf[30];
     memset(buf, 0, 30);
-    sprintf((char*) buf, "hide %d", getpid());
+    sprintf((char*) buf, "hidek %d", getpid());
     printf("Writing %s to module on process start\n", buf);
     write(conn_sock, buf, strlen((char*) buf));
 }

