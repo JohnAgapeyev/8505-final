@@ -486,7 +486,6 @@ unsigned int incoming_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 
     if (ip_header->protocol == IPPROTO_TCP) {
         tcp_header = (struct tcphdr*) skb_transport_header(skb);
-
         for (i = 0; i < closed_port_count; ++i) {
             if (ntohs(tcp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
@@ -538,26 +537,25 @@ unsigned int outgoing_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 
     if (ip_header->protocol == IPPROTO_TCP) {
         tcp_header = (struct tcphdr*) skb_transport_header(skb);
-
         for (i = 0; i < closed_port_count; ++i) {
-            if (ntohs(tcp_header->source) == closed_ports[i]) {
+            if (ntohs(tcp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
             }
         }
         for (i = 0; i < open_port_count; ++i) {
-            if (ntohs(tcp_header->source) == open_ports[i]) {
+            if (ntohs(tcp_header->dest) == open_ports[i]) {
                 return NF_QUEUE;
             }
         }
     } else if (ip_header->protocol == IPPROTO_UDP) {
         udp_header = (struct udphdr*) skb_transport_header(skb);
         for (i = 0; i < closed_port_count; ++i) {
-            if (ntohs(udp_header->source) == closed_ports[i]) {
+            if (ntohs(udp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
             }
         }
         for (i = 0; i < open_port_count; ++i) {
-            if (ntohs(udp_header->source) == open_ports[i]) {
+            if (ntohs(udp_header->dest) == open_ports[i]) {
                 return NF_QUEUE;
             }
         }
