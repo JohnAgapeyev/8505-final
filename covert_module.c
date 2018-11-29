@@ -748,7 +748,6 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
  * notes:
  * Module entry function
  */
-char parent_name[PATH_MAX];
 static int __init mod_init(void) {
     int err;
 
