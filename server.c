@@ -202,13 +202,11 @@ retry_ssl:
                     outfile = NULL;
                 } else {
                     printf("Received %d bytes of unknown data\n", size);
-#if 1
                     for (int i = 0; i < 4; ++i) {
                         printf("%c", buffer[i]);
                     }
                     printf("\n");
                     fflush(stdout);
-#endif
                 }
             }
             if (size < 0) {

