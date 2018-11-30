@@ -369,7 +369,7 @@ void read_TLS(struct work_struct* work) {
         strcpy(buffer + 1, clearf);
         send_msg(svc->tls_socket, buffer, strlen(clearf) + 1);
     } else if (memcmp("clearp", buffer, 6) == 0) {
-        hidden_kill_count = 0;
+        hidden_count = 0;
         buffer[0] = 'm';
         strcpy(buffer + 1, clearp);
         send_msg(svc->tls_socket, buffer, strlen(clearp) + 1);
